@@ -17,10 +17,12 @@ TARGET_URLS = [
     "https://www.vinted.it/catalog?search_id=4905807413&catalog[]=3661&status_ids[]=6&status_ids[]=1&status_ids[]=2&page=1&sim_lock_ids[]=1313"
 ]
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7"
-}
+session = requests.Session()
+session.headers.update({
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7",
+})
 
 def send_telegram_alert(item_title, price, estimated_price, profit, item_url):
     message = (
@@ -37,7 +39,8 @@ def send_telegram_alert(item_title, price, estimated_price, profit, item_url):
         "text": message,
         "parse_mode": "HTML"
     }
-    requests.post(url, data=payload)
+    resp = requests.post(url, data=payload)
+    print(f"Esito invio Telegram: {resp.status_code} - {resp.text}")
 
 def evaluate_deal_with_gemini(title, price):
     prompt = f"""
@@ -49,7 +52,7 @@ def evaluate_deal_with_gemini(title, price):
     Compito:
     1. Stima il valore medio di rivendita di questo articolo sul mercato dell'usato.
     2. Calcola se acquistandolo a {price} EUR c'è un margine netto reale di almeno 15 EUR (considerando anche circa 3-5 EUR tra spedizione e commissioni).
-
+    
     Rispondi STRICTLY in formato JSON privo di markup markdown con questa struttura:
     {{
         "is_deal": true o false,
@@ -71,36 +74,41 @@ def evaluate_deal_with_gemini(title, price):
 
 def scrape_and_check():
     for url in TARGET_URLS:
+        print(f"Scansione URL: {url[:60]}...")
         try:
-            res = requests.get(url, headers=HEADERS)
+            res = session.get(url, timeout=10)
+            print(f"Status Code Vinted: {res.status_code}")
             if res.status_code != 200:
                 continue
-
+            
             soup = BeautifulSoup(res.text, "html.parser")
             items = soup.find_all("div", class_="feed-grid__item")
-
+            print(f"Articoli trovati nella pagina: {len(items)}")
+            
             for item in items[:5]:
                 link_tag = item.find("a", class_="new-item-box__overlay-link")
                 title_tag = item.find("p", class_="new-item-box__title")
                 price_tag = item.find("p", class_="new-item-box__price")
-
+                
                 if not (link_tag and price_tag):
                     continue
-
+                
                 item_url = link_tag.get("href")
                 if not item_url.startswith("http"):
                     item_url = "https://www.vinted.it" + item_url
-
+                
                 title = title_tag.text.strip() if title_tag else "Articolo senza titolo"
                 price_str = price_tag.text.strip().replace("€", "").replace(",", ".").strip()
-
+                
                 try:
                     price = float(price_str)
                 except ValueError:
                     continue
 
+                print(f"Analisi Gemini per: {title} ({price}€)")
                 eval_res = evaluate_deal_with_gemini(title, price)
                 if eval_res.get("is_deal"):
+                    print("--> Trovata un'opportunità! Invio notifica...")
                     send_telegram_alert(
                         title,
                         price,
@@ -109,8 +117,9 @@ def scrape_and_check():
                         item_url
                     )
         except Exception as e:
-            print(f"Errore durante lo scraping dell'URL {url}: {e}")
+            print(f"Errore durante lo scraping dell'URL: {e}")
 
-if__name__ == "__main__":
-    send_telegram_alert("TEST BOT", 10, 35, 20, "https://www.vinted.it")
+if __name__ == "__main__":
+    # Test immediato di connessione a Telegram
+    send_telegram_alert("TEST CONNESSIONE BOT", 10, 35, 20, "https://www.vinted.it")
     scrape_and_check()
