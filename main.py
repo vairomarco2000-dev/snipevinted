@@ -111,5 +111,6 @@ def scrape_and_check():
         except Exception as e:
             print(f"Errore durante lo scraping dell'URL {url}: {e}")
 
-if __name__ == "__main__":
+if__name__ == "__main__":
+    send_telegram_alert("TEST BOT", 10, 35, 20, "https://www.vinted.it")
     scrape_and_check()
