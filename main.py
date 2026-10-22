@@ -10,11 +10,14 @@ GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
 client = genai.Client(api_key=GEMINI_API_KEY)
 
+# Nuova lista di URL con filtri ordinati per i più recenti
 TARGET_URLS = [
-    "https://www.vinted.it/catalog?search_id=4905530694&catalog[]=1452&brand_ids[]=53&brand_ids[]=14&page=1&size_ids[]=784&status_ids[]=6&status_ids[]=1&status_ids[]=2&price_to=50&currency=EUR",
-    "https://www.vinted.it/catalog?search_id=4905698326&search_text=weekend%20offender%20uomo&catalog[]=2050&page=1",
-    "https://www.vinted.it/catalog?search_id=4905732263&search_text=the%20nort%20face&catalog[]=2050&page=1&status_ids[]=6&status_ids[]=1&status_ids[]=2&color_ids[]=1",
-    "https://www.vinted.it/catalog?search_id=4905807413&catalog[]=3661&status_ids[]=6&status_ids[]=1&status_ids[]=2&page=1&sim_lock_ids[]=1313"
+    "https://www.vinted.it/catalog?search_id=4905807413&catalog[]=3661&status_ids[]=6&status_ids[]=1&status_ids[]=2&page=1&sim_lock_ids[]=1313&order=newest_first",
+    "https://www.vinted.it/catalog?search_id=4905681358&catalog[]=2050&size_ids[]=207&size_ids[]=208&size_ids[]=209&page=1&brand_ids[]=53&brand_ids[]=14&brand_ids[]=94&brand_ids[]=304&brand_ids[]=88&brand_ids[]=4273&brand_ids[]=2319&brand_ids[]=255&brand_ids[]=73306&brand_ids[]=214&brand_ids[]=161&brand_ids[]=2929&brand_ids[]=139&status_ids[]=6&status_ids[]=1&status_ids[]=2&price_to=50.00&currency=EUR&order=newest_first",
+    "https://www.vinted.it/catalog?search_id=4908212226&catalog[]=1452&page=1&brand_ids[]=53&brand_ids[]=14&brand_ids[]=2703&brand_ids[]=1775&brand_ids[]=5977&brand_ids[]=370427&size_ids[]=784&size_ids[]=786&price_to=50.00&currency=EUR&order=newest_first",
+    "https://www.vinted.it/catalog?search_id=4908284469&catalog[]=30&size_ids[]=207&size_ids[]=208&size_ids[]=209&size_ids[]=210&page=1&brand_ids[]=53&brand_ids[]=14&status_ids[]=6&status_ids[]=1&status_ids[]=2&price_to=50.00&currency=EUR&order=newest_first",
+    "https://www.vinted.it/catalog?search_id=4908439558&catalog[]=1206&order=newest_first&page=1",
+    "https://www.vinted.it/catalog?search_id=4908477902&catalog[]=34&order=newest_first&page=1"
 ]
 
 session = requests.Session()
@@ -39,8 +42,7 @@ def send_telegram_alert(item_title, price, estimated_price, profit, item_url):
         "text": message,
         "parse_mode": "HTML"
     }
-    resp = requests.post(url, data=payload)
-    print(f"Esito invio Telegram: {resp.status_code} - {resp.text}")
+    requests.post(url, data=payload)
 
 def evaluate_deal_with_gemini(title, price):
     prompt = f"""
@@ -51,7 +53,7 @@ def evaluate_deal_with_gemini(title, price):
 
     Compito:
     1. Stima il valore medio di rivendita di questo articolo sul mercato dell'usato.
-    2. Calcola se acquistandolo a {price} EUR c'è un margine netto reale di almeno 15 EUR (considerando anche circa 3-5 EUR tra spedizione e commissioni).
+    2. Calcola se acquistandolo a {price} EUR c'è un margine netto reale di ALMENO 10 EUR (considerando anche circa 3-5 EUR tra spedizione e commissioni).
     
     Rispondi STRICTLY in formato JSON privo di markup markdown con questa struttura:
     {{
@@ -74,18 +76,15 @@ def evaluate_deal_with_gemini(title, price):
 
 def scrape_and_check():
     for url in TARGET_URLS:
-        print(f"Scansione URL: {url[:60]}...")
         try:
             res = session.get(url, timeout=10)
-            print(f"Status Code Vinted: {res.status_code}")
             if res.status_code != 200:
                 continue
             
             soup = BeautifulSoup(res.text, "html.parser")
             items = soup.find_all("div", class_="feed-grid__item")
-            print(f"Articoli trovati nella pagina: {len(items)}")
             
-            for item in items[:5]:
+            for item in items[:5]:  # Analizza i primi 5 prodotti più recenti
                 link_tag = item.find("a", class_="new-item-box__overlay-link")
                 title_tag = item.find("p", class_="new-item-box__title")
                 price_tag = item.find("p", class_="new-item-box__price")
@@ -105,10 +104,8 @@ def scrape_and_check():
                 except ValueError:
                     continue
 
-                print(f"Analisi Gemini per: {title} ({price}€)")
                 eval_res = evaluate_deal_with_gemini(title, price)
                 if eval_res.get("is_deal"):
-                    print("--> Trovata un'opportunità! Invio notifica...")
                     send_telegram_alert(
                         title,
                         price,
@@ -117,9 +114,7 @@ def scrape_and_check():
                         item_url
                     )
         except Exception as e:
-            print(f"Errore durante lo scraping dell'URL: {e}")
+            print(f"Errore durante lo scraping dell'URL {url}: {e}")
 
 if __name__ == "__main__":
-    # Test immediato di connessione a Telegram
-    send_telegram_alert("TEST CONNESSIONE BOT", 10, 35, 20, "https://www.vinted.it")
     scrape_and_check()
