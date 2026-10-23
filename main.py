@@ -10,7 +10,6 @@ GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
 client = genai.Client(api_key=GEMINI_API_KEY)
 
-# Nuova lista di URL con filtri ordinati per i più recenti
 TARGET_URLS = [
     "https://www.vinted.it/catalog?search_id=4905807413&catalog[]=3661&status_ids[]=6&status_ids[]=1&status_ids[]=2&page=1&sim_lock_ids[]=1313&order=newest_first",
     "https://www.vinted.it/catalog?search_id=4905681358&catalog[]=2050&size_ids[]=207&size_ids[]=208&size_ids[]=209&page=1&brand_ids[]=53&brand_ids[]=14&brand_ids[]=94&brand_ids[]=304&brand_ids[]=88&brand_ids[]=4273&brand_ids[]=2319&brand_ids[]=255&brand_ids[]=73306&brand_ids[]=214&brand_ids[]=161&brand_ids[]=2929&brand_ids[]=139&status_ids[]=6&status_ids[]=1&status_ids[]=2&price_to=50.00&currency=EUR&order=newest_first",
@@ -71,20 +70,24 @@ def evaluate_deal_with_gemini(title, price):
         data = json.loads(text_resp)
         return data
     except Exception as e:
-        print(f"Errore valutazione Gemini: {e}")
+        print(f"Errore valutazione Gemini: {e}", flush=True)
         return {"is_deal": False}
 
 def scrape_and_check():
-    for url in TARGET_URLS:
+    print(">>> BOT AVVIATO CORRETTAMENTE <<<", flush=True)
+    for index, url in enumerate(TARGET_URLS, 1):
+        print(f"\n--- Controllo URL {index}/{len(TARGET_URLS)} ---", flush=True)
         try:
-            res = session.get(url, timeout=10)
+            res = session.get(url, timeout=5)
+            print(f"Status Code Vinted: {res.status_code}", flush=True)
             if res.status_code != 200:
                 continue
             
             soup = BeautifulSoup(res.text, "html.parser")
             items = soup.find_all("div", class_="feed-grid__item")
+            print(f"Articoli trovati nella pagina: {len(items)}", flush=True)
             
-            for item in items[:5]:  # Analizza i primi 5 prodotti più recenti
+            for item in items[:5]:
                 link_tag = item.find("a", class_="new-item-box__overlay-link")
                 title_tag = item.find("p", class_="new-item-box__title")
                 price_tag = item.find("p", class_="new-item-box__price")
@@ -104,8 +107,12 @@ def scrape_and_check():
                 except ValueError:
                     continue
 
+                print(f"Analisi per: '{title}' ({price}€)", flush=True)
                 eval_res = evaluate_deal_with_gemini(title, price)
+                print(f"Risposta Gemini: {eval_res}", flush=True)
+                
                 if eval_res.get("is_deal"):
+                    print("--> Affare trovato! Invio notifica Telegram...", flush=True)
                     send_telegram_alert(
                         title,
                         price,
@@ -114,7 +121,7 @@ def scrape_and_check():
                         item_url
                     )
         except Exception as e:
-            print(f"Errore durante lo scraping dell'URL {url}: {e}")
+            print(f"Errore durante lo scraping dell'URL {index}: {e}", flush=True)
 
 if __name__ == "__main__":
     scrape_and_check()
