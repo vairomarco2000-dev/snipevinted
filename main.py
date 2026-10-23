@@ -27,10 +27,8 @@ session.headers.update({
 })
 
 def init_session():
-    """Inizializza i cookie visitando la homepage di Vinted."""
     try:
-        res = session.get("https://www.vinted.it", timeout=10)
-        print(f"Inizializzazione sessione Vinted: {res.status_code}", flush=True)
+        session.get("https://www.vinted.it", timeout=10)
     except Exception as e:
         print(f"Errore inizializzazione sessione: {e}", flush=True)
 
@@ -81,14 +79,6 @@ def evaluate_deal_with_gemini(title, price):
         print(f"Errore valutazione Gemini: {e}", flush=True)
         return {"is_deal": False}
 
-def parse_items_from_soup(soup):
-    """Cerca gli elementi usando molteplici selettori CSS possibili."""
-    # Prova selettori multipli usati da Vinted per i singoli articoli
-    items = soup.find_all("div", class_=lambda c: c and ("feed-grid__item" in c or "grid__item" in c or "item-box" in c))
-    if not items:
-        items = soup.find_all("div", attrs={"data-testid": lambda v: v and "item" in v})
-    return items
-
 def scrape_and_check():
     print(">>> BOT AVVIATO CORRETTAMENTE <<<", flush=True)
     init_session()
@@ -103,30 +93,59 @@ def scrape_and_check():
                 continue
             
             soup = BeautifulSoup(res.text, "html.parser")
-            items = parse_items_from_soup(soup)
-            print(f"Articoli individuati nell'HTML: {len(items)}", flush=True)
             
-            for item in items[:5]:
-                link_tag = item.find("a", href=lambda h: h and "/items/" in h)
-                title_tag = item.find(["p", "h2", "span"], class_=lambda c: c and "title" in c)
-                price_tag = item.find(["p", "span"], class_=lambda c: c and "price" in c)
-                
-                if not (link_tag and price_tag):
-                    continue
-                
+            # Trova direttamente tutti i link unici che puntano agli articoli
+            all_links = soup.find_all("a", href=lambda h: h and "/items/" in h)
+            unique_items = []
+            seen_urls = set()
+            for link in all_links:
+                href = link.get("href")
+                if href not in seen_urls:
+                    seen_urls.add(href)
+                    unique_items.append(link)
+            
+            print(f"Annunci unici trovati: {len(unique_items)}", flush=True)
+            
+            for link_tag in unique_items[:5]:
                 item_url = link_tag.get("href")
                 if not item_url.startswith("http"):
                     item_url = "https://www.vinted.it" + item_url
                 
-                title = title_tag.text.strip() if title_tag else "Articolo senza titolo"
-                price_str = price_tag.text.strip().replace("€", "").replace(",", ".").strip()
+                # Prende il contenitore principale dell'annuncio
+                container = link_tag.find_parent("div", class_=lambda c: c and ("item" in c or "card" in c or "box" in c)) or link_tag.parent
+                
+                title_tag = container.find(["p", "h2", "span", "div"], class_=lambda c: c and ("title" in c or "description" in c))
+                price_tag = container.find(["p", "span", "div"], class_=lambda c: c and ("price" in c or "amount" in c))
+                
+                title = title_tag.text.strip() if title_tag else link_tag.get("title", "Articolo Vinted")
+                
+                price_str = "0"
+                if price_tag:
+                    price_str = price_tag.text.strip().replace("€", "").replace(",", ".").strip()
+                else:
+                    text_content = container.get_text()
+                    if "€" in text_content:
+                        parts = text_content.split("€")
+                        for p in parts:
+                            clean_p = ''.join(c for c in p if c.isdigit() or c == '.')
+                            if clean_p:
+                                try:
+                                    price_val = float(clean_p)
+                                    if 0.5 <= price_val <= 1000:
+                                        price_str = str(price_val)
+                                        break
+                                except:
+                                    pass
                 
                 try:
                     price = float(price_str)
                 except ValueError:
                     continue
 
-                print(f"Analisi per: '{title}' ({price}€)", flush=True)
+                if price <= 0:
+                    continue
+
+                print(f"Analisi per: '{title[:35]}' ({price}€)", flush=True)
                 eval_res = evaluate_deal_with_gemini(title, price)
                 print(f"Risposta Gemini: {eval_res}", flush=True)
                 
