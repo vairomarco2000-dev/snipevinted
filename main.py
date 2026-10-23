@@ -1,6 +1,7 @@
 import os
 import json
 import re
+import time
 import requests
 from bs4 import BeautifulSoup
 from google import genai
@@ -68,17 +69,22 @@ def evaluate_deal_with_gemini(title, price):
         "estimated_profit": numero
     }}
     """
-    try:
-        response = client.models.generate_content(
-            model='gemini-3.8-flash',
-            contents=prompt
-        )
-        text_resp = response.text.replace("```json", "").replace("```", "").strip()
-        data = json.loads(text_resp)
-        return data
-    except Exception as e:
-        print(f"Errore valutazione Gemini: {e}", flush=True)
-        return {"is_deal": False}
+    for attempt in range(3): # Tentativi multipli in caso di sovraccarico temporaneo
+        try:
+            response = client.models.generate_content(
+                model='gemini-3.8-flash',
+                contents=prompt
+            )
+            text_resp = response.text.replace("```json", "").replace("```", "").strip()
+            data = json.loads(text_resp)
+            return data
+        except Exception as e:
+            if "429" in str(e):
+                print("Quota superata, attesa di 15 secondi...", flush=True)
+                time.sleep(15)
+            else:
+                time.sleep(3)
+    return {"is_deal": False}
 
 def scrape_and_check():
     print(">>> BOT AVVIATO CORRETTAMENTE <<<", flush=True)
@@ -105,8 +111,8 @@ def scrape_and_check():
             
             print(f"Annunci unici trovati: {len(unique_items)}", flush=True)
             
-            # Analizziamo i primi 10 annunci di ogni categoria per test
-            for link_tag in unique_items[:10]:
+            # Analizziamo solo i primi 3 annunci per categoria per restare nei limiti della quota gratuita
+            for i, link_tag in enumerate(unique_items[:3], 1):
                 item_url = link_tag.get("href")
                 if not item_url.startswith("http"):
                     item_url = "https://www.vinted.it" + item_url
@@ -138,9 +144,9 @@ def scrape_and_check():
                 else:
                     title = "Articolo Vinted"
 
-                print(f"Analisi per: '{title[:35]}' ({price}€)", flush=True)
+                print(f"[{i}/3] Analisi per: '{title[:35]}' ({price}€)...", flush=True)
                 eval_res = evaluate_deal_with_gemini(title, price)
-                print(f"Risposta Gemini: {eval_res}", flush=True)
+                print(f"Esito: {eval_res}", flush=True)
                 
                 if eval_res.get("is_deal"):
                     print("--> Affare trovato! Invio notifica Telegram...", flush=True)
@@ -151,6 +157,10 @@ def scrape_and_check():
                         eval_res.get("estimated_profit"),
                         item_url
                     )
+                
+                # Pausa di cortesia di 6 secondi tra una richiesta e l'altra per non sforare i limiti
+                time.sleep(6)
+                
         except Exception as e:
             print(f"Errore durante lo scraping di {target['name']}: {e}", flush=True)
 
