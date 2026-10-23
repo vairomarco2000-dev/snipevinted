@@ -105,39 +105,41 @@ def scrape_and_check():
             
             print(f"Annunci unici trovati: {len(unique_items)}", flush=True)
             
-            # Analizziamo gli annunci trovati
-            for link_tag in unique_items[:10]: # Analizza i primi 10 per ogni categoria a ogni giro
+            # Analizziamo i primi 10 annunci di ogni categoria per test
+            for link_tag in unique_items[:10]:
                 item_url = link_tag.get("href")
                 if not item_url.startswith("http"):
                     item_url = "https://www.vinted.it" + item_url
                 
-                # Trova il blocco contenitore della card del prodotto
-                card = link_tag.find_parent("div", class_=lambda c: c and ("item" in c or "card" in c or "box" in c)) or link_tag.parent
+                # Risaliamo di 3 livelli nel DOM per assicurarci di includere l'intero blocco della card (prezzo + titolo)
+                card = link_tag
+                for _ in range(3):
+                    if card and card.parent:
+                        card = card.parent
+                
                 card_text = card.get_text(separator=" ", strip=True) if card else link_tag.get_text(separator=" ", strip=True)
                 
-                # Estrazione prezzo tramite Regex robusta
+                # Estrazione prezzo flessibile con Regex
                 price = 0.0
-                price_match = re.search(r'(\d+[\.,]\d{2})\s*€|€\s*(\d+[\.,]\d{2})|(\d+)\s*€', card_text)
+                price_match = re.search(r'(\d+[\.,]\d{2})\s*€|€\s*(\d+[\.,]\d{2})|(\d+)\s*€|€\s*(\d+)', card_text)
                 if price_match:
-                    p_str = next(group for group in price_match.groups() if group is not None)
-                    p_str = p_str.replace(",", ".")
-                    try:
-                        price = float(p_str)
-                    except ValueError:
-                        pass
+                    groups = [g for g in price_match.groups() if g is not None]
+                    if groups:
+                        p_str = groups[0].replace(",", ".")
+                        try:
+                            price = float(p_str)
+                        except ValueError:
+                            pass
                 
                 if price <= 0:
                     continue
                 
-                # Estrazione titolo pulito dall'URL o dal tag
-                title = link_tag.get("title", "")
-                if not title or len(title) < 3:
-                    # Prende il nome dal link dell'articolo (es. /items/12345-iphone-13 -> iphone 13)
-                    parts = item_url.split('/')[-1].split('?')[0].split('-')
-                    if len(parts) > 1:
-                        title = " ".join(parts[1:]).title()
-                    else:
-                        title = "Articolo Vinted"
+                # Estrazione del titolo pulito dall'URL
+                parts = item_url.split('/')[-1].split('?')[0].split('-')
+                if len(parts) > 1:
+                    title = " ".join(parts[1:]).title()
+                else:
+                    title = "Articolo Vinted"
 
                 print(f"Analisi per: '{title[:35]}' ({price}€)", flush=True)
                 eval_res = evaluate_deal_with_gemini(title, price)
