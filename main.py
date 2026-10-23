@@ -87,15 +87,13 @@ def scrape_and_check():
         print(f"\n--- Controllo {target['name']} ({index}/{len(TARGET_URLS)}) ---", flush=True)
         try:
             res = session.get(target['url'], timeout=10)
-            print(f"Status Code Vinted: {res.status_code}", flush=True)
-            
             if res.status_code != 200:
+                print(f"Status Code errato: {res.status_code}", flush=True)
                 continue
             
             soup = BeautifulSoup(res.text, "html.parser")
-            
-            # Trova direttamente tutti i link unici che puntano agli articoli
             all_links = soup.find_all("a", href=lambda h: h and "/items/" in h)
+            
             unique_items = []
             seen_urls = set()
             for link in all_links:
@@ -106,46 +104,43 @@ def scrape_and_check():
             
             print(f"Annunci unici trovati: {len(unique_items)}", flush=True)
             
-            for link_tag in unique_items[:5]:
+            # Analizziamo i primi 3 annunci per ogni categoria come test di debug
+            for link_tag in unique_items[:3]:
                 item_url = link_tag.get("href")
                 if not item_url.startswith("http"):
                     item_url = "https://www.vinted.it" + item_url
                 
-                # Prende il contenitore principale dell'annuncio
+                # Cerchiamo il testo completo del blocco genitore
                 container = link_tag.find_parent("div", class_=lambda c: c and ("item" in c or "card" in c or "box" in c)) or link_tag.parent
+                container_text = container.get_text(separator=" | ", strip=True)
                 
-                title_tag = container.find(["p", "h2", "span", "div"], class_=lambda c: c and ("title" in c or "description" in c))
-                price_tag = container.find(["p", "span", "div"], class_=lambda c: c and ("price" in c or "amount" in c))
+                print(f"DEBUG Testo blocco: {container_text[:120]}...", flush=True)
                 
-                title = title_tag.text.strip() if title_tag else link_tag.get("title", "Articolo Vinted")
+                # Estraiamo titolo e prezzo in modo sicuro dal testo del blocco
+                parts = container_text.split(" | ")
+                title = "Articolo Vinted"
+                price = 0.0
                 
-                price_str = "0"
-                if price_tag:
-                    price_str = price_tag.text.strip().replace("€", "").replace(",", ".").strip()
-                else:
-                    text_content = container.get_text()
-                    if "€" in text_content:
-                        parts = text_content.split("€")
-                        for p in parts:
-                            clean_p = ''.join(c for c in p if c.isdigit() or c == '.')
-                            if clean_p:
-                                try:
-                                    price_val = float(clean_p)
-                                    if 0.5 <= price_val <= 1000:
-                                        price_str = str(price_val)
-                                        break
-                                except:
-                                    pass
-                
-                try:
-                    price = float(price_str)
-                except ValueError:
-                    continue
+                for p in parts:
+                    if "€" in p:
+                        clean_p = p.replace("€", "").replace(",", ".").strip()
+                        # Prendi solo la parte numerica
+                        clean_digits = ''.join(c for c in clean_p if c.isdigit() or c == '.')
+                        try:
+                            val = float(clean_digits)
+                            if 0.5 <= val <= 2000:
+                                price = val
+                                break
+                        except:
+                            pass
+                    elif len(p) > 5 and title == "Articolo Vinted":
+                        title = p
 
                 if price <= 0:
+                    print(f"DEBUG: Prezzo non trovato per l'articolo {item_url}", flush=True)
                     continue
 
-                print(f"Analisi per: '{title[:35]}' ({price}€)", flush=True)
+                print(f"Analisi per: '{title[:30]}' ({price}€)", flush=True)
                 eval_res = evaluate_deal_with_gemini(title, price)
                 print(f"Risposta Gemini: {eval_res}", flush=True)
                 
