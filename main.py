@@ -70,7 +70,7 @@ def evaluate_deal_with_gemini(title, price):
     """
     try:
         response = client.models.generate_content(
-            model='gemini-2.5-flash',
+            model='gemini-3.8-flash',
             contents=prompt
         )
         text_resp = response.text.replace("```json", "").replace("```", "").strip()
@@ -111,7 +111,6 @@ def scrape_and_check():
                 if not item_url.startswith("http"):
                     item_url = "https://www.vinted.it" + item_url
                 
-                # Risaliamo di 3 livelli nel DOM per assicurarci di includere l'intero blocco della card (prezzo + titolo)
                 card = link_tag
                 for _ in range(3):
                     if card and card.parent:
@@ -119,7 +118,6 @@ def scrape_and_check():
                 
                 card_text = card.get_text(separator=" ", strip=True) if card else link_tag.get_text(separator=" ", strip=True)
                 
-                # Estrazione prezzo flessibile con Regex
                 price = 0.0
                 price_match = re.search(r'(\d+[\.,]\d{2})\s*€|€\s*(\d+[\.,]\d{2})|(\d+)\s*€|€\s*(\d+)', card_text)
                 if price_match:
@@ -134,7 +132,6 @@ def scrape_and_check():
                 if price <= 0:
                     continue
                 
-                # Estrazione del titolo pulito dall'URL
                 parts = item_url.split('/')[-1].split('?')[0].split('-')
                 if len(parts) > 1:
                     title = " ".join(parts[1:]).title()
