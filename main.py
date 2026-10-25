@@ -70,7 +70,7 @@ def evaluate_deal_with_groq(title, price):
     """
 
     payload = {
-        "model": "gemma2-9b-it",
+        "model": "llama-3.3-70b-versatile",
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.2,
         "response_format": {"type": "json_object"}
