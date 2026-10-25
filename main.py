@@ -56,9 +56,20 @@ def get_dynamic_model():
         if res.status_code == 200:
             models = [m["id"] for m in res.json().get("data", [])]
             print(f"Modelli disponibili su Groq: {models}", flush=True)
-            for m in models:
-                if "llama" in m and ("instant" in m or "versatile" in m or "8b" in m or "70b" in m):
+            
+            # Filtra via modelli di classificazione, guardrail, embedding o audio
+            valid_models = [
+                m for m in models 
+                if not any(x in m.lower() for x in ["guard", "classify", "embed", "whisper", "audio", "tool"])
+            ]
+            
+            # Cerca un modello di chat/istruzione appropriato
+            for m in valid_models:
+                if "instant" in m or "versatile" in m or "instruct" in m or "chat" in m or "8b" in m or "70b" in m:
                     return m
+            
+            if valid_models:
+                return valid_models[0]
             if models:
                 return models[0]
     except Exception as e:
@@ -155,7 +166,7 @@ def scrape_and_check():
                         except ValueError:
                             pass
                 
-                if price <=0:
+                if price <= 0:
                     continue
                 
                 parts = item_url.split('/')[-1].split('?')[0].split('-')
