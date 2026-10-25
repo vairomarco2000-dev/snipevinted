@@ -70,7 +70,7 @@ def evaluate_deal_with_groq(title, price):
     """
 
     payload = {
-        "model": "llama-3.1-8b-instant",
+        "model": "llama3-8b-8192",
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.2,
         "response_format": {"type": "json_object"}
@@ -113,7 +113,7 @@ def scrape_and_check():
             
             print(f"Annunci unici trovati: {len(unique_items)}", flush=True)
             
-            for i, link_tag in enumerate(unique_items[:5], 1): # Analizza i primi 5 per categoria
+            for i, link_tag in enumerate(unique_items[:5], 1):
                 item_url = link_tag.get("href")
                 if not item_url.startswith("http"):
                     item_url = "https://www.vinted.it" + item_url
