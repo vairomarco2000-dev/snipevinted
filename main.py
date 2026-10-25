@@ -48,7 +48,24 @@ def send_telegram_alert(item_title, price, estimated_price, profit, item_url):
     }
     requests.post(url, data=payload)
 
-def evaluate_deal_with_groq(title, price):
+def get_dynamic_model():
+    url = "https://api.groq.com/openai/v1/models"
+    headers = {"Authorization": f"Bearer {GROQ_API_KEY}"}
+    try:
+        res = requests.get(url, headers=headers, timeout=10)
+        if res.status_code == 200:
+            models = [m["id"] for m in res.json().get("data", [])]
+            print(f"Modelli disponibili su Groq: {models}", flush=True)
+            for m in models:
+                if "llama" in m and ("instant" in m or "versatile" in m or "8b" in m or "70b" in m):
+                    return m
+            if models:
+                return models[0]
+    except Exception as e:
+        print(f"Errore ricerca modelli: {e}", flush=True)
+    return "llama-3.1-8b-instant"
+
+def evaluate_deal_with_groq(title, price, model_name):
     url = "https://api.groq.com/openai/v1/chat/completions"
     headers = {
         "Authorization": f"Bearer {GROQ_API_KEY}",
@@ -70,7 +87,7 @@ def evaluate_deal_with_groq(title, price):
     """
 
     payload = {
-        "model": "llama-3.3-70b-versatile",
+        "model": model_name,
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.2,
         "response_format": {"type": "json_object"}
@@ -90,6 +107,8 @@ def evaluate_deal_with_groq(title, price):
 
 def scrape_and_check():
     print(">>> BOT AVVIATO CORRETTAMENTE CON GROQ <<<", flush=True)
+    model_name = get_dynamic_model()
+    print(f">>> MODELLO SELEZIONATO AUTOMATICAMENTE: {model_name} <<<", flush=True)
     init_session()
     
     for index, target in enumerate(TARGET_URLS, 1):
@@ -136,7 +155,7 @@ def scrape_and_check():
                         except ValueError:
                             pass
                 
-                if price <= 0:
+                if price <=0:
                     continue
                 
                 parts = item_url.split('/')[-1].split('?')[0].split('-')
@@ -146,7 +165,7 @@ def scrape_and_check():
                     title = "Articolo Vinted"
 
                 print(f"[{i}/5] Analisi per: '{title[:35]}' ({price}€)...", flush=True)
-                eval_res = evaluate_deal_with_groq(title, price)
+                eval_res = evaluate_deal_with_groq(title, price, model_name)
                 print(f"Esito Groq: {eval_res}", flush=True)
                 
                 if eval_res.get("is_deal"):
