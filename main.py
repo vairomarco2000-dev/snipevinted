@@ -57,13 +57,18 @@ def get_dynamic_model():
             models = [m["id"] for m in res.json().get("data", [])]
             print(f"Modelli disponibili su Groq: {models}", flush=True)
             
+            # Esclude modelli non testuali, audio, guard e orpheus
             valid_models = [
                 m for m in models 
-                if not any(x in m.lower() for x in ["guard", "classify", "embed", "whisper", "audio", "tool", "gpt-oss"])
+                if not any(x in m.lower() for x in ["guard", "classify", "embed", "whisper", "audio", "tool", "orpheus"])
             ]
             
+            # Seleziona prioritariamente Qwen o GPT-OSS
             for m in valid_models:
-                if "llama" in m and ("instant" in m or "versatile" in m or "8b" in m):
+                if "qwen" in m or "gpt-oss-20b" in m:
+                    return m
+            for m in valid_models:
+                if "gpt-oss" in m or "allam" in m:
                     return m
             
             if valid_models:
@@ -72,7 +77,7 @@ def get_dynamic_model():
                 return models[0]
     except Exception as e:
         print(f"Errore ricerca modelli: {e}", flush=True)
-    return "llama-3.1-8b-instant"
+    return "qwen/qwen3.8-27b"
 
 def evaluate_deal_with_groq(title, price, model_name):
     url = "https://api.groq.com/openai/v1/chat/completions"
