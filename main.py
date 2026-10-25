@@ -22,7 +22,7 @@ session = requests.Session()
 session.headers.update({
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-    "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7",
+    "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8,en-US;q=0.7",
 })
 
 def init_session():
@@ -55,19 +55,13 @@ def get_dynamic_model():
         res = requests.get(url, headers=headers, timeout=10)
         if res.status_code == 200:
             models = [m["id"] for m in res.json().get("data", [])]
-            print(f"Modelli disponibili su Groq: {models}", flush=True)
-            
-            # Filtra via modelli di classificazione, guardrail, embedding o audio
             valid_models = [
                 m for m in models 
                 if not any(x in m.lower() for x in ["guard", "classify", "embed", "whisper", "audio", "tool"])
             ]
-            
-            # Cerca un modello di chat/istruzione appropriato
             for m in valid_models:
                 if "instant" in m or "versatile" in m or "instruct" in m or "chat" in m or "8b" in m or "70b" in m:
                     return m
-            
             if valid_models:
                 return valid_models[0]
             if models:
@@ -83,24 +77,26 @@ def evaluate_deal_with_groq(title, price, model_name):
         "Content-Type": "application/json"
     }
     
+    # PROMPT AGGIORNATO: Estremamente severo, conservativo e realistico
     prompt = f"""
-    Sei un esperto di reselling di usati (sneakers, streetwear ed elettronica).
-    Analizza questo articolo:
-    Titolo: {title}
-    Prezzo di vendita su Vinted: {price} EUR
+    Sei un reseller professionista ed estremamente scettico. Il tuo obiettivo principale è non bruciare capitale in falsi affari.
+    Analizza questo articolo in vendita su Vinted:
+    - Titolo: {title}
+    - Prezzo di vendita su Vinted: {price} EUR
 
-    Compito:
-    1. Stima il valore medio di rivendita di questo articolo sul mercato dell'usato.
-    2. Calcola se acquistandolo a {price} EUR c'è un margine netto reale di ALMENO 10 EUR (considerando circa 3-5 EUR tra spedizione e commissioni).
-    
-    Rispondi STRICTLY in formato JSON privo di qualsiasi testo extra con questa struttura:
-    {{"is_deal": true, "estimated_resell_price": 50, "estimated_profit": 15}}
+    Regole ferree per la valutazione:
+    1. Stima il REALE valore di mercato attuale dell'usato su Vinted/Subito (NON il prezzo di listino da nuovo e NON un valore ottimistico). Ricorda che la concorrenza è altissima e gli articoli si vendono solo se prezzati onestamente.
+    2. Calcola il profitto netto effettivo considerando circa 5 EUR tra spedizione e commissioni di piattaforma.
+    3. Imposta `"is_deal": true` SOLO SE c'è un margine netto reale di ALMENO 15 EUR E rappresenta un vero affare eccezionale. Se il margine è risicato, se l'articolo è prezzato al suo normale valore di mercato, o se hai il minimo dubbio, devi tassativamente mettere `false`.
+
+    Rispondi STRICTLY in formato JSON privo di qualsiasi testo extra con questa struttura esatta:
+    {{"is_deal": false, "estimated_resell_price": 0, "estimated_profit": 0}}
     """
 
     payload = {
         "model": model_name,
         "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.2,
+        "temperature": 0.1,  # Ancora più deterministico e freddo
         "response_format": {"type": "json_object"}
     }
 
