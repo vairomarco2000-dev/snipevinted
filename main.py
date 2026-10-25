@@ -4,13 +4,10 @@ import re
 import time
 import requests
 from bs4 import BeautifulSoup
-from google import genai
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
-
-client = genai.Client(api_key=GEMINI_API_KEY)
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 
 TARGET_URLS = [
     {"name": "Elettronica / Tech", "url": "https://www.vinted.it/catalog?search_id=4905807413&catalog[]=3661&status_ids[]=6&status_ids[]=1&status_ids[]=2&page=1&sim_lock_ids[]=1313&order=newest_first"},
@@ -51,7 +48,13 @@ def send_telegram_alert(item_title, price, estimated_price, profit, item_url):
     }
     requests.post(url, data=payload)
 
-def evaluate_deal_with_gemini(title, price):
+def evaluate_deal_with_groq(title, price):
+    url = "https://api.groq.com/openai/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    
     prompt = f"""
     Sei un esperto di reselling di usati (sneakers, streetwear ed elettronica).
     Analizza questo articolo:
@@ -62,32 +65,31 @@ def evaluate_deal_with_gemini(title, price):
     1. Stima il valore medio di rivendita di questo articolo sul mercato dell'usato.
     2. Calcola se acquistandolo a {price} EUR c'è un margine netto reale di ALMENO 10 EUR (considerando circa 3-5 EUR tra spedizione e commissioni).
     
-    Rispondi STRICTLY in formato JSON privo di markup markdown con questa struttura:
-    {{
-        "is_deal": true o false,
-        "estimated_resell_price": numero,
-        "estimated_profit": numero
-    }}
+    Rispondi STRICTLY in formato JSON privo di qualsiasi testo extra con questa struttura:
+    {{"is_deal": true, "estimated_resell_price": 50, "estimated_profit": 15}}
     """
-    for attempt in range(3): # Tentativi multipli in caso di sovraccarico temporaneo
-        try:
-            response = client.models.generate_content(
-                model='gemini-3.8-flash',
-                contents=prompt
-            )
-            text_resp = response.text.replace("```json", "").replace("```", "").strip()
-            data = json.loads(text_resp)
-            return data
-        except Exception as e:
-            if "429" in str(e):
-                print("Quota superata, attesa di 15 secondi...", flush=True)
-                time.sleep(15)
-            else:
-                time.sleep(3)
+
+    payload = {
+        "model": "llama-3.1-8b-instant",
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.2,
+        "response_format": {"type": "json_object"}
+    }
+
+    try:
+        res = requests.post(url, json=payload, headers=headers, timeout=10)
+        if res.status_code == 200:
+            content = res.json()["choices"][0]["message"]["content"]
+            return json.loads(content)
+        else:
+            print(f"Errore Groq API ({res.status_code}): {res.text}", flush=True)
+    except Exception as e:
+        print(f"Errore chiamata Groq: {e}", flush=True)
+        
     return {"is_deal": False}
 
 def scrape_and_check():
-    print(">>> BOT AVVIATO CORRETTAMENTE <<<", flush=True)
+    print(">>> BOT AVVIATO CORRETTAMENTE CON GROQ <<<", flush=True)
     init_session()
     
     for index, target in enumerate(TARGET_URLS, 1):
@@ -111,8 +113,7 @@ def scrape_and_check():
             
             print(f"Annunci unici trovati: {len(unique_items)}", flush=True)
             
-            # Analizziamo solo i primi 3 annunci per categoria per restare nei limiti della quota gratuita
-            for i, link_tag in enumerate(unique_items[:3], 1):
+            for i, link_tag in enumerate(unique_items[:5], 1): # Analizza i primi 5 per categoria
                 item_url = link_tag.get("href")
                 if not item_url.startswith("http"):
                     item_url = "https://www.vinted.it" + item_url
@@ -144,9 +145,9 @@ def scrape_and_check():
                 else:
                     title = "Articolo Vinted"
 
-                print(f"[{i}/3] Analisi per: '{title[:35]}' ({price}€)...", flush=True)
-                eval_res = evaluate_deal_with_gemini(title, price)
-                print(f"Esito: {eval_res}", flush=True)
+                print(f"[{i}/5] Analisi per: '{title[:35]}' ({price}€)...", flush=True)
+                eval_res = evaluate_deal_with_groq(title, price)
+                print(f"Esito Groq: {eval_res}", flush=True)
                 
                 if eval_res.get("is_deal"):
                     print("--> Affare trovato! Invio notifica Telegram...", flush=True)
@@ -158,8 +159,7 @@ def scrape_and_check():
                         item_url
                     )
                 
-                # Pausa di cortesia di 6 secondi tra una richiesta e l'altra per non sforare i limiti
-                time.sleep(6)
+                time.sleep(2)
                 
         except Exception as e:
             print(f"Errore durante lo scraping di {target['name']}: {e}", flush=True)
