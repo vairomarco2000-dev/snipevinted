@@ -22,7 +22,7 @@ session = requests.Session()
 session.headers.update({
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-    "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8,en-US;q=0.7",
+    "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7",
 })
 
 def init_session():
@@ -55,13 +55,17 @@ def get_dynamic_model():
         res = requests.get(url, headers=headers, timeout=10)
         if res.status_code == 200:
             models = [m["id"] for m in res.json().get("data", [])]
+            print(f"Modelli disponibili su Groq: {models}", flush=True)
+            
             valid_models = [
                 m for m in models 
-                if not any(x in m.lower() for x in ["guard", "classify", "embed", "whisper", "audio", "tool"])
+                if not any(x in m.lower() for x in ["guard", "classify", "embed", "whisper", "audio", "tool", "gpt-oss"])
             ]
+            
             for m in valid_models:
-                if "instant" in m or "versatile" in m or "instruct" in m or "chat" in m or "8b" in m or "70b" in m:
+                if "llama" in m and ("instant" in m or "versatile" in m or "8b" in m):
                     return m
+            
             if valid_models:
                 return valid_models[0]
             if models:
@@ -77,7 +81,6 @@ def evaluate_deal_with_groq(title, price, model_name):
         "Content-Type": "application/json"
     }
     
-    # PROMPT AGGIORNATO: Estremamente severo, conservativo e realistico
     prompt = f"""
     Sei un reseller professionista ed estremamente scettico. Il tuo obiettivo principale è non bruciare capitale in falsi affari.
     Analizza questo articolo in vendita su Vinted:
@@ -87,7 +90,7 @@ def evaluate_deal_with_groq(title, price, model_name):
     Regole ferree per la valutazione:
     1. Stima il REALE valore di mercato attuale dell'usato su Vinted/Subito (NON il prezzo di listino da nuovo e NON un valore ottimistico). Ricorda che la concorrenza è altissima e gli articoli si vendono solo se prezzati onestamente.
     2. Calcola il profitto netto effettivo considerando circa 5 EUR tra spedizione e commissioni di piattaforma.
-    3. Imposta `"is_deal": true` SOLO SE c'è un margine netto reale di ALMENO 15 EUR E rappresenta un vero affare eccezionale. Se il margine è risicato, se l'articolo è prezzato al suo normale valore di mercato, o se hai il minimo dubbio, devi tassativamente mettere `false`.
+    3. Imposta `"is_deal": true` SOLO SE c'è un margine netto reale di ALMENO 20 EUR E rappresenta un vero affare eccezionale. Se il margine è inferiore a 20 EUR, se l'articolo è prezzato al suo normale valore di mercato, o se hai il minimo dubbio, devi tassativamente mettere `false`.
 
     Rispondi STRICTLY in formato JSON privo di qualsiasi testo extra con questa struttura esatta:
     {{"is_deal": false, "estimated_resell_price": 0, "estimated_profit": 0}}
@@ -96,19 +99,26 @@ def evaluate_deal_with_groq(title, price, model_name):
     payload = {
         "model": model_name,
         "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.1,  # Ancora più deterministico e freddo
+        "temperature": 0.1,
         "response_format": {"type": "json_object"}
     }
 
-    try:
-        res = requests.post(url, json=payload, headers=headers, timeout=10)
-        if res.status_code == 200:
-            content = res.json()["choices"][0]["message"]["content"]
-            return json.loads(content)
-        else:
-            print(f"Errore Groq API ({res.status_code}): {res.text}", flush=True)
-    except Exception as e:
-        print(f"Errore chiamata Groq: {e}", flush=True)
+    for attempt in range(2):
+        try:
+            res = requests.post(url, json=payload, headers=headers, timeout=10)
+            if res.status_code == 200:
+                content = res.json()["choices"][0]["message"]["content"]
+                return json.loads(content)
+            elif res.status_code == 429:
+                print(f"Rate limit raggiunto (429), attendo 10 secondi...", flush=True)
+                time.sleep(10)
+                continue
+            else:
+                print(f"Errore Groq API ({res.status_code}): {res.text}", flush=True)
+                break
+        except Exception as e:
+            print(f"Errore chiamata Groq: {e}", flush=True)
+            break
         
     return {"is_deal": False}
 
@@ -185,7 +195,7 @@ def scrape_and_check():
                         item_url
                     )
                 
-                time.sleep(2)
+                time.sleep(5)
                 
         except Exception as e:
             print(f"Errore durante lo scraping di {target['name']}: {e}", flush=True)
