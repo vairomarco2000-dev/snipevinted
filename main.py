@@ -2,12 +2,15 @@ import os
 import json
 import re
 import time
+import subprocess
 import requests
 from bs4 import BeautifulSoup
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
+
+SENT_ITEMS_FILE = "sent_items.json"
 
 TARGET_URLS = [
     {"name": "Elettronica / Tech", "url": "https://www.vinted.it/catalog?search_id=4905807413&catalog[]=3661&status_ids[]=6&status_ids[]=1&status_ids[]=2&page=1&sim_lock_ids[]=1313&order=newest_first"},
@@ -31,22 +34,44 @@ def init_session():
     except Exception as e:
         print(f"Errore inizializzazione sessione: {e}", flush=True)
 
-def send_telegram_alert(item_title, price, estimated_price, profit, item_url):
-    message = (
-        f"🚨 <b>NUOVA OPPORTUNITÀ RESELL!</b>\n\n"
-        f"📦 <b>Articolo:</b> {item_title}\n"
-        f"💸 <b>Prezzo Vinted:</b> {price} €\n"
-        f"📈 <b>Valore stimato:</b> {estimated_price} €\n"
-        f"💰 <b>Margine netto stimato:</b> +{profit} €\n\n"
-        f"🔗 <a href='{item_url}'>Visualizza su Vinted</a>"
-    )
+def send_telegram_alert(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {
         "chat_id": TELEGRAM_CHAT_ID,
         "text": message,
         "parse_mode": "HTML"
     }
-    requests.post(url, data=payload)
+    try:
+        requests.post(url, data=payload, timeout=5)
+    except Exception as e:
+        print(f"Errore invio Telegram: {e}", flush=True)
+
+def load_sent_items():
+    if os.path.exists(SENT_ITEMS_FILE):
+        try:
+            with open(SENT_ITEMS_FILE, "r") as f:
+                return set(json.load(f))
+        except Exception:
+            return set()
+    return set()
+
+def save_sent_item(item_id):
+    sent = load_sent_items()
+    sent.add(str(item_id))
+    # Mantieni solo gli ultimi 500 elementi per evitare file enormi
+    sent_list = list(sent)[-500:]
+    try:
+        with open(SENT_ITEMS_FILE, "w") as f:
+            json.dump(sent_list, f)
+        
+        # Git auto-commit per persistere la memoria su GitHub Actions
+        subprocess.run(["git", "config", "--global", "user.name", "VintedBot"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(["git", "config", "--global", "user.email", "bot@users.noreply.github.com"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(["git", "add", SENT_ITEMS_FILE], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(["git", "commit", "-m", "Update sent items memory [skip ci]"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(["git", "push"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception as e:
+        print(f"Impossibile salvare lo stato su git: {e}", flush=True)
 
 def get_dynamic_model():
     url = "https://api.groq.com/openai/v1/models"
@@ -80,7 +105,6 @@ def evaluate_deal_with_groq(title, price, model_name):
         "Content-Type": "application/json"
     }
     
-    # Ora chiediamo all'IA solo di stimare il prezzo di mercato reale
     prompt = f"""
     Sei un reseller professionista ed estremamente scettico.
     Analizza questo articolo in vendita su Vinted:
@@ -108,10 +132,7 @@ def evaluate_deal_with_groq(title, price, model_name):
                 data = json.loads(content)
                 estimated_resell = float(data.get("estimated_resell_price", 0))
                 
-                # CALCOLO MATEMATICO SICURO IN PYTHON (senza lasciare l'aritmetica all'IA)
-                # Spese fisse stimate: 5 EUR (spedizione + commissioni)
                 net_profit = estimated_resell - price - 5.0
-                
                 is_deal = net_profit >= 20.0
                 
                 return {
@@ -133,7 +154,9 @@ def evaluate_deal_with_groq(title, price, model_name):
     return {"is_deal": False, "estimated_resell_price": 0, "estimated_profit": 0}
 
 def scrape_and_check():
-    print(">>> BOT AVVIATO CORRETTAMENTE CON GROQ <<<", flush=True)
+    sent_items = load_sent_items()
+    print(f">>> BOT AVVIATO CORRETTAMENTE CON GROQ (Memoria: {len(sent_items)} articoli tracciati) <<<", flush=True)
+    
     model_name = get_dynamic_model()
     print(f">>> MODELLO SELEZIONATO AUTOMATICAMENTE: {model_name} <<<", flush=True)
     init_session()
@@ -164,6 +187,18 @@ def scrape_and_check():
                 if not item_url.startswith("http"):
                     item_url = "https://www.vinted.it" + item_url
                 
+                # Estrazione ID univoco dell'articolo dall'URL
+                item_id_match = re.search(r'/items/(\d+)', item_url)
+                if item_id_match:
+                    item_id = item_id_match.group(1)
+                else:
+                    item_id = item_url
+
+                # Salta se già notificato in passato
+                if item_id in sent_items:
+                    print(f"[{i}/5] Articolo {item_id} già notificato in precedenza. Salto.", flush=True)
+                    continue
+
                 card = link_tag
                 for _ in range(3):
                     if card and card.parent:
@@ -171,6 +206,13 @@ def scrape_and_check():
                 
                 card_text = card.get_text(separator=" ", strip=True) if card else link_tag.get_text(separator=" ", strip=True)
                 
+                # FILTRO DIFETTI / RICAMBI: Se trovi queste parole, salta subito
+                lower_text = card_text.lower()
+                bad_keywords = ["ricambi", "non funziona", "rotto", "difettoso", "danneggiato", "da sistemare", "bloccato"]
+                if any(kw in lower_text for kw in bad_keywords):
+                    print(f"[{i}/5] Scartato per presenza parole chiave di difetti/ricambi.", flush=True)
+                    continue
+
                 price = 0.0
                 price_match = re.search(r'(\d+[\.,]\d{2})\s*€|€\s*(\d+[\.,]\d{2})|(\d+)\s*€|€\s*(\d+)', card_text)
                 if price_match:
@@ -197,13 +239,20 @@ def scrape_and_check():
                 
                 if eval_res.get("is_deal"):
                     print("--> Affare trovato! Invio notifica Telegram...", flush=True)
-                    send_telegram_alert(
-                        title,
-                        price,
-                        eval_res.get("estimated_resell_price"),
-                        eval_res.get("estimated_profit"),
-                        item_url
+                    profit = eval_res.get("estimated_profit")
+                    est_price = eval_res.get("estimated_resell_price")
+                    
+                    msg = (
+                        f"🚨 <b>NUOVA OPPORTUNITÀ RESELL!</b>\n\n"
+                        f"📦 <b>Articolo:</b> {title}\n"
+                        f"💸 <b>Prezzo Vinted:</b> {price} €\n"
+                        f"📈 <b>Valore stimato:</b> {est_price} €\n"
+                        f"💰 <b>Margine netto stimato:</b> +{profit} €\n\n"
+                        f"🔗 <a href='{item_url}'>Visualizza su Vinted</a>"
                     )
+                    send_telegram_alert(msg)
+                    save_sent_item(item_id)
+                    sent_items.add(str(item_id))
                 
                 time.sleep(5)
                 
@@ -211,4 +260,9 @@ def scrape_and_check():
             print(f"Errore durante lo scraping di {target['name']}: {e}", flush=True)
 
 if __name__ == "__main__":
-    scrape_and_check()
+    try:
+        scrape_and_check()
+    except Exception as fatal_error:
+        error_msg = f"⚠️ <b>ATTENZIONE: Bot Vinted in crash!</b>\nErrore critico: <code>{str(fatal_error)}</code>"
+        print(error_msg, flush=True)
+        send_telegram_alert(error_msg)
