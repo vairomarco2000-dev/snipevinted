@@ -13,7 +13,7 @@ GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 SENT_ITEMS_FILE = "sent_items.json"
 
 TARGET_URLS = [
-    # --- Streetwear & Casuals Specifici (Alta Domanda, Basso Rischio Fake) ---
+    # --- Streetwear & Casuals Specifici ---
     {
         "name": "Streetwear - Weekend Offender", 
         "url": "https://www.vinted.it/catalog?search_text=weekend+offender&price_to=45.00&currency=EUR&order=newest_first"
@@ -27,7 +27,7 @@ TARGET_URLS = [
         "url": "https://www.vinted.it/catalog?brand_ids[]=2703&brand_ids[]=1775&brand_ids[]=5977&brand_ids[]=364&catalog[]=1452&catalog[]=30&price_to=50.00&currency=EUR&status_ids[]=1&status_ids[]=2&status_ids[]=6&order=newest_first"
     },
 
-    # --- Collezionismo Cartaceo & Vintage (Zero Fake, Spedizione Leggera) ---
+    # --- Collezionismo Cartaceo & Vintage ---
     {
         "name": "Collezionismo - Diabolik & Fumetti D'Autore", 
         "url": "https://www.vinted.it/catalog?search_text=lotto+diabolik+fumetti+vintage&price_to=25.00&currency=EUR&order=newest_first"
@@ -53,14 +53,6 @@ TARGET_URLS = [
     {
         "name": "Streetwear Generico (Filtro Taglie)", 
         "url": "https://www.vinted.it/catalog?search_id=4908212226&catalog[]=1452&page=1&brand_ids[]=53&brand_ids[]=14&brand_ids[]=2703&brand_ids[]=1775&brand_ids[]=5977&brand_ids[]=370427&size_ids[]=784&size_ids[]=786&price_to=50.00&currency=EUR&order=newest_first"
-    },
-    {
-        "name": "Abbigliamento Categoria 1206", 
-        "url": "https://www.vinted.it/catalog?search_id=4908439558&catalog[]=1206&order=newest_first&page=1"
-    },
-    {
-        "name": "Abbigliamento Categoria 34", 
-        "url": "https://www.vinted.it/catalog?search_id=4908477902&catalog[]=34&order=newest_first&page=1"
     }
 ]
 
@@ -165,7 +157,7 @@ def evaluate_deal_with_groq(title, price, model_name):
         "response_format": {"type": "json_object"}
     }
 
-    wait_times = [15, 25]
+    wait_times = [10, 20]
     for attempt in range(len(wait_times) + 1):
         try:
             res = requests.post(url, json=payload, headers=headers, timeout=10)
@@ -229,7 +221,8 @@ def scrape_and_check():
             
             print(f"Annunci unici trovati: {len(unique_items)}", flush=True)
             
-            for i, link_tag in enumerate(unique_items[:5], 1):
+            # Ridotto a 3 per categoria per massima velocità ed evitare rate limits
+            for i, link_tag in enumerate(unique_items[:3], 1):
                 item_url = link_tag.get("href")
                 if not item_url.startswith("http"):
                     item_url = "https://www.vinted.it" + item_url
@@ -241,7 +234,7 @@ def scrape_and_check():
                     item_id = item_url
 
                 if item_id in sent_items:
-                    print(f"[{i}/5] Articolo {item_id} già notificato in precedenza. Salto.", flush=True)
+                    print(f"[{i}/3] Articolo {item_id} già notificato in precedenza. Salto.", flush=True)
                     continue
 
                 card = link_tag
@@ -252,9 +245,16 @@ def scrape_and_check():
                 card_text = card.get_text(separator=" ", strip=True) if card else link_tag.get_text(separator=" ", strip=True)
                 
                 lower_text = card_text.lower()
+                
+                # Filtro parole chiave negative (difetti, ricambi, fake)
                 bad_keywords = ["ricambi", "non funziona", "rotto", "difettoso", "danneggiato", "da sistemare", "bloccato", "replica", "fake"]
                 if any(kw in lower_text for kw in bad_keywords):
-                    print(f"[{i}/5] Scartato per presenza parole chiave di difetti/ricambi/fake.", flush=True)
+                    print(f"[{i}/3] Scartato per presenza parole chiave di difetti/ricambi/fake.", flush=True)
+                    continue
+
+                # Filtro specifico: se è una singola figurina Panini e non un album/lotto, scarta
+                if "figurina" in lower_text and "album" not in lower_text and "lotto" not in lower_text:
+                    print(f"[{i}/3] Scartato: è una singola figurina, non un album/lotto.", flush=True)
                     continue
 
                 price = 0.0
@@ -277,7 +277,7 @@ def scrape_and_check():
                 else:
                     title = "Articolo Vinted"
 
-                print(f"[{i}/5] Analisi per: '{title[:35]}' ({price}€)...", flush=True)
+                print(f"[{i}/3] Analisi per: '{title[:35]}' ({price}€)...", flush=True)
                 eval_res = evaluate_deal_with_groq(title, price, model_name)
                 print(f"Esito Groq: {eval_res}", flush=True)
                 
