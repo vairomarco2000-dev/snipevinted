@@ -161,7 +161,9 @@ def evaluate_deal_with_groq(title, price, model_name):
         "response_format": {"type": "json_object"}
     }
 
-    for attempt in range(2):
+    # Tentativi progressivi con backoff in caso di Rate Limit (429)
+    wait_times = [15, 25]
+    for attempt in range(len(wait_times) + 1):
         try:
             res = requests.post(url, json=payload, headers=headers, timeout=10)
             if res.status_code == 200:
@@ -178,9 +180,14 @@ def evaluate_deal_with_groq(title, price, model_name):
                     "estimated_profit": round(net_profit, 2)
                 }
             elif res.status_code == 429:
-                print(f"Rate limit raggiunto (429), attendo 10 secondi...", flush=True)
-                time.sleep(10)
-                continue
+                if attempt < len(wait_times):
+                    sleep_time = wait_times[attempt]
+                    print(f"Rate limit raggiunto (429), attendo {sleep_time} secondi...", flush=True)
+                    time.sleep(sleep_time)
+                    continue
+                else:
+                    print("Rate limit persistente: tentativi esauriti.", flush=True)
+                    break
             else:
                 print(f"Errore Groq API ({res.status_code}): {res.text}", flush=True)
                 break
@@ -288,7 +295,8 @@ def scrape_and_check():
                     save_sent_item(item_id)
                     sent_items.add(str(item_id))
                 
-                time.sleep(5)
+                # Pausa estesa a 8 secondi per non saturare il Rate Limit sui token
+                time.sleep(8)
                 
         except Exception as e:
             print(f"Errore durante lo scraping di {target['name']}: {e}", flush=True)
