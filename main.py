@@ -13,12 +13,41 @@ GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 SENT_ITEMS_FILE = "sent_items.json"
 
 TARGET_URLS = [
-    {"name": "Elettronica / Tech", "url": "https://www.vinted.it/catalog?search_id=4905807413&catalog[]=3661&status_ids[]=6&status_ids[]=1&status_ids[]=2&page=1&sim_lock_ids[]=1313&order=newest_first"},
-    {"name": "Sneakers / Brand 1", "url": "https://www.vinted.it/catalog?search_id=4905681358&catalog[]=2050&size_ids[]=207&size_ids[]=208&size_ids[]=209&page=1&brand_ids[]=53&brand_ids[]=14&brand_ids[]=94&brand_ids[]=304&brand_ids[]=88&brand_ids[]=4273&brand_ids[]=2319&brand_ids[]=255&brand_ids[]=73306&brand_ids[]=214&brand_ids[]=161&brand_ids[]=2929&brand_ids[]=139&status_ids[]=6&status_ids[]=1&status_ids[]=2&price_to=50.00&currency=EUR&order=newest_first"},
-    {"name": "Streetwear 1", "url": "https://www.vinted.it/catalog?search_id=4908212226&catalog[]=1452&page=1&brand_ids[]=53&brand_ids[]=14&brand_ids[]=2703&brand_ids[]=1775&brand_ids[]=5977&brand_ids[]=370427&size_ids[]=784&size_ids[]=786&price_to=50.00&currency=EUR&order=newest_first"},
-    {"name": "Streetwear 2", "url": "https://www.vinted.it/catalog?search_id=4908284469&catalog[]=30&size_ids[]=207&size_ids[]=208&size_ids[]=209&size_ids[]=210&page=1&brand_ids[]=53&brand_ids[]=14&status_ids[]=6&status_ids[]=1&status_ids[]=2&price_to=50.00&currency=EUR&order=newest_first"},
-    {"name": "Categoria 1206", "url": "https://www.vinted.it/catalog?search_id=4908439558&catalog[]=1206&order=newest_first&page=1"},
-    {"name": "Categoria 34", "url": "https://www.vinted.it/catalog?search_id=4908477902&catalog[]=34&order=newest_first&page=1"}
+    # --- Categorie Streetwear & Outdoor Sicure (Zero Fake, Alta Liquidità) ---
+    {
+        "name": "Outdoor & Gorpcore (Patagonia, Arc'teryx, Mammut, TNF)", 
+        "url": "https://www.vinted.it/catalog?brand_ids[]=2703&brand_ids[]=1775&brand_ids[]=5977&brand_ids[]=364&catalog[]=1452&catalog[]=30&price_to=50.00&currency=EUR&status_ids[]=1&status_ids[]=2&status_ids[]=6&order=newest_first"
+    },
+    {
+        "name": "Workwear & Denim (Carhartt WIP, Dickies)", 
+        "url": "https://www.vinted.it/catalog?brand_ids[]=53&brand_ids[]=371&catalog[]=1452&catalog[]=257&catalog[]=30&price_to=45.00&currency=EUR&status_ids[]=1&status_ids[]=2&status_ids[]=6&order=newest_first"
+    },
+    {
+        "name": "Maglie da Calcio & Sportwear Vintage", 
+        "url": "https://www.vinted.it/catalog?search_text=maglia+calcio+vintage&price_to=30.00&currency=EUR&order=newest_first"
+    },
+    {
+        "name": "Gaming Retro & Console Portatili (Nintendo, PS Vita, GameBoy)", 
+        "url": "https://www.vinted.it/catalog?catalog[]=3009&catalog[]=3011&catalog[]=3014&price_to=60.00&currency=EUR&order=newest_first"
+    },
+
+    # --- Le tue ricerche originarie di Sneakers e Streetwear generico ---
+    {
+        "name": "Sneakers / Brand Selezionati", 
+        "url": "https://www.vinted.it/catalog?search_id=4905681358&catalog[]=2050&size_ids[]=207&size_ids[]=208&size_ids[]=209&page=1&brand_ids[]=53&brand_ids[]=14&brand_ids[]=94&brand_ids[]=304&brand_ids[]=88&brand_ids[]=4273&brand_ids[]=2319&brand_ids[]=255&brand_ids[]=73306&brand_ids[]=214&brand_ids[]=161&brand_ids[]=2929&brand_ids[]=139&status_ids[]=6&status_ids[]=1&status_ids[]=2&price_to=50.00&currency=EUR&order=newest_first"
+    },
+    {
+        "name": "Streetwear Generico (Filtro Taglie)", 
+        "url": "https://www.vinted.it/catalog?search_id=4908212226&catalog[]=1452&page=1&brand_ids[]=53&brand_ids[]=14&brand_ids[]=2703&brand_ids[]=1775&brand_ids[]=5977&brand_ids[]=370427&size_ids[]=784&size_ids[]=786&price_to=50.00&currency=EUR&order=newest_first"
+    },
+    {
+        "name": "Abbigliamento Categoria 1206", 
+        "url": "https://www.vinted.it/catalog?search_id=4908439558&catalog[]=1206&order=newest_first&page=1"
+    },
+    {
+        "name": "Abbigliamento Categoria 34", 
+        "url": "https://www.vinted.it/catalog?search_id=4908477902&catalog[]=34&order=newest_first&page=1"
+    }
 ]
 
 session = requests.Session()
@@ -58,13 +87,11 @@ def load_sent_items():
 def save_sent_item(item_id):
     sent = load_sent_items()
     sent.add(str(item_id))
-    # Mantieni solo gli ultimi 500 elementi per evitare file enormi
     sent_list = list(sent)[-500:]
     try:
         with open(SENT_ITEMS_FILE, "w") as f:
             json.dump(sent_list, f)
         
-        # Git auto-commit per persistere la memoria su GitHub Actions
         subprocess.run(["git", "config", "--global", "user.name", "VintedBot"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         subprocess.run(["git", "config", "--global", "user.email", "bot@users.noreply.github.com"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         subprocess.run(["git", "add", SENT_ITEMS_FILE], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -187,14 +214,12 @@ def scrape_and_check():
                 if not item_url.startswith("http"):
                     item_url = "https://www.vinted.it" + item_url
                 
-                # Estrazione ID univoco dell'articolo dall'URL
                 item_id_match = re.search(r'/items/(\d+)', item_url)
                 if item_id_match:
                     item_id = item_id_match.group(1)
                 else:
                     item_id = item_url
 
-                # Salta se già notificato in passato
                 if item_id in sent_items:
                     print(f"[{i}/5] Articolo {item_id} già notificato in precedenza. Salto.", flush=True)
                     continue
@@ -206,11 +231,10 @@ def scrape_and_check():
                 
                 card_text = card.get_text(separator=" ", strip=True) if card else link_tag.get_text(separator=" ", strip=True)
                 
-                # FILTRO DIFETTI / RICAMBI: Se trovi queste parole, salta subito
                 lower_text = card_text.lower()
-                bad_keywords = ["ricambi", "non funziona", "rotto", "difettoso", "danneggiato", "da sistemare", "bloccato"]
+                bad_keywords = ["ricambi", "non funziona", "rotto", "difettoso", "danneggiato", "da sistemare", "bloccato", "replica", "fake"]
                 if any(kw in lower_text for kw in bad_keywords):
-                    print(f"[{i}/5] Scartato per presenza parole chiave di difetti/ricambi.", flush=True)
+                    print(f"[{i}/5] Scartato per presenza parole chiave di difetti/ricambi/fake.", flush=True)
                     continue
 
                 price = 0.0
