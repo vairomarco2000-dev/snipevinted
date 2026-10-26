@@ -55,22 +55,16 @@ def get_dynamic_model():
         res = requests.get(url, headers=headers, timeout=10)
         if res.status_code == 200:
             models = [m["id"] for m in res.json().get("data", [])]
-            print(f"Modelli disponibili su Groq: {models}", flush=True)
-            
-            # Esclude modelli non testuali, audio, guard e orpheus
             valid_models = [
                 m for m in models 
                 if not any(x in m.lower() for x in ["guard", "classify", "embed", "whisper", "audio", "tool", "orpheus"])
             ]
-            
-            # Seleziona prioritariamente Qwen o GPT-OSS
             for m in valid_models:
                 if "qwen" in m or "gpt-oss-20b" in m:
                     return m
             for m in valid_models:
                 if "gpt-oss" in m or "allam" in m:
                     return m
-            
             if valid_models:
                 return valid_models[0]
             if models:
@@ -86,19 +80,17 @@ def evaluate_deal_with_groq(title, price, model_name):
         "Content-Type": "application/json"
     }
     
+    # Ora chiediamo all'IA solo di stimare il prezzo di mercato reale
     prompt = f"""
-    Sei un reseller professionista ed estremamente scettico. Il tuo obiettivo principale è non bruciare capitale in falsi affari.
+    Sei un reseller professionista ed estremamente scettico.
     Analizza questo articolo in vendita su Vinted:
     - Titolo: {title}
     - Prezzo di vendita su Vinted: {price} EUR
 
-    Regole ferree per la valutazione:
-    1. Stima il REALE valore di mercato attuale dell'usato su Vinted/Subito (NON il prezzo di listino da nuovo e NON un valore ottimistico). Ricorda che la concorrenza è altissima e gli articoli si vendono solo se prezzati onestamente.
-    2. Calcola il profitto netto effettivo considerando circa 5 EUR tra spedizione e commissioni di piattaforma.
-    3. Imposta `"is_deal": true` SOLO SE c'è un margine netto reale di ALMENO 20 EUR E rappresenta un vero affare eccezionale. Se il margine è inferiore a 20 EUR, se l'articolo è prezzato al suo normale valore di mercato, o se hai il minimo dubbio, devi tassativamente mettere `false`.
-
+    Compito:
+    Stima il REALE valore di mercato attuale dell'usato su Vinted/Subito (NON il prezzo da nuovo). 
     Rispondi STRICTLY in formato JSON privo di qualsiasi testo extra con questa struttura esatta:
-    {{"is_deal": false, "estimated_resell_price": 0, "estimated_profit": 0}}
+    {{"estimated_resell_price": 0}}
     """
 
     payload = {
@@ -113,7 +105,20 @@ def evaluate_deal_with_groq(title, price, model_name):
             res = requests.post(url, json=payload, headers=headers, timeout=10)
             if res.status_code == 200:
                 content = res.json()["choices"][0]["message"]["content"]
-                return json.loads(content)
+                data = json.loads(content)
+                estimated_resell = float(data.get("estimated_resell_price", 0))
+                
+                # CALCOLO MATEMATICO SICURO IN PYTHON (senza lasciare l'aritmetica all'IA)
+                # Spese fisse stimate: 5 EUR (spedizione + commissioni)
+                net_profit = estimated_resell - price - 5.0
+                
+                is_deal = net_profit >= 20.0
+                
+                return {
+                    "is_deal": is_deal,
+                    "estimated_resell_price": estimated_resell,
+                    "estimated_profit": round(net_profit, 2)
+                }
             elif res.status_code == 429:
                 print(f"Rate limit raggiunto (429), attendo 10 secondi...", flush=True)
                 time.sleep(10)
@@ -125,7 +130,7 @@ def evaluate_deal_with_groq(title, price, model_name):
             print(f"Errore chiamata Groq: {e}", flush=True)
             break
         
-    return {"is_deal": False}
+    return {"is_deal": False, "estimated_resell_price": 0, "estimated_profit": 0}
 
 def scrape_and_check():
     print(">>> BOT AVVIATO CORRETTAMENTE CON GROQ <<<", flush=True)
