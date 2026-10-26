@@ -13,7 +13,25 @@ GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 SENT_ITEMS_FILE = "sent_items.json"
 
 TARGET_URLS = [
-    # --- Collezionismo SICURO (Zero Fakes, Alta Richiesta) ---
+    # --- Streetwear & Casuals Specifici (Alta Domanda, Basso Rischio Fake) ---
+    {
+        "name": "Streetwear - Weekend Offender", 
+        "url": "https://www.vinted.it/catalog?search_text=weekend+offender&price_to=45.00&currency=EUR&order=newest_first"
+    },
+    {
+        "name": "Workwear & Denim (Carhartt WIP, Dickies)", 
+        "url": "https://www.vinted.it/catalog?brand_ids[]=53&brand_ids[]=371&catalog[]=1452&catalog[]=257&catalog[]=30&price_to=45.00&currency=EUR&status_ids[]=1&status_ids[]=2&status_ids[]=6&order=newest_first"
+    },
+    {
+        "name": "Outdoor & Gorpcore (Patagonia, Arc'teryx, Mammut, TNF)", 
+        "url": "https://www.vinted.it/catalog?brand_ids[]=2703&brand_ids[]=1775&brand_ids[]=5977&brand_ids[]=364&catalog[]=1452&catalog[]=30&price_to=50.00&currency=EUR&status_ids[]=1&status_ids[]=2&status_ids[]=6&order=newest_first"
+    },
+
+    # --- Collezionismo Cartaceo & Vintage (Zero Fake, Spedizione Leggera) ---
+    {
+        "name": "Collezionismo - Diabolik & Fumetti D'Autore", 
+        "url": "https://www.vinted.it/catalog?search_text=lotto+diabolik+fumetti+vintage&price_to=25.00&currency=EUR&order=newest_first"
+    },
     {
         "name": "Collezionismo - Album Panini Vintage", 
         "url": "https://www.vinted.it/catalog?search_text=album+panini+calciatori&price_to=35.00&currency=EUR&order=newest_first"
@@ -22,26 +40,12 @@ TARGET_URLS = [
         "name": "Collezionismo - Retrogaming (PS1, PS2, Nintendo)", 
         "url": "https://www.vinted.it/catalog?search_text=giochi+ps1+ps2+nintendo&price_to=30.00&currency=EUR&order=newest_first"
     },
-    {
-        "name": "Collezionismo - Fumetti & Lotti Vintage", 
-        "url": "https://www.vinted.it/catalog?search_text=lotto+fumetti+vintage+topolino&price_to=25.00&currency=EUR&order=newest_first"
-    },
 
-    # --- Categorie Streetwear & Outdoor Sicure ---
-    {
-        "name": "Outdoor & Gorpcore (Patagonia, Arc'teryx, Mammut, TNF)", 
-        "url": "https://www.vinted.it/catalog?brand_ids[]=2703&brand_ids[]=1775&brand_ids[]=5977&brand_ids[]=364&catalog[]=1452&catalog[]=30&price_to=50.00&currency=EUR&status_ids[]=1&status_ids[]=2&status_ids[]=6&order=newest_first"
-    },
-    {
-        "name": "Workwear & Denim (Carhartt WIP, Dickies)", 
-        "url": "https://www.vinted.it/catalog?brand_ids[]=53&brand_ids[]=371&catalog[]=1452&catalog[]=257&catalog[]=30&price_to=45.00&currency=EUR&status_ids[]=1&status_ids[]=2&status_ids[]=6&order=newest_first"
-    },
+    # --- Sportwear & Altre Ricerche ---
     {
         "name": "Maglie da Calcio & Sportwear Vintage", 
         "url": "https://www.vinted.it/catalog?search_text=maglia+calcio+vintage&price_to=30.00&currency=EUR&order=newest_first"
     },
-
-    # --- Le tue ricerche originarie pulite ---
     {
         "name": "Sneakers / Brand Selezionati", 
         "url": "https://www.vinted.it/catalog?search_id=4905681358&catalog[]=2050&size_ids[]=207&size_ids[]=208&size_ids[]=209&page=1&brand_ids[]=53&brand_ids[]=14&brand_ids[]=94&brand_ids[]=304&brand_ids[]=88&brand_ids[]=4273&brand_ids[]=2319&brand_ids[]=255&brand_ids[]=73306&brand_ids[]=214&brand_ids[]=161&brand_ids[]=2929&brand_ids[]=139&status_ids[]=6&status_ids[]=1&status_ids[]=2&price_to=50.00&currency=EUR&order=newest_first"
@@ -161,7 +165,6 @@ def evaluate_deal_with_groq(title, price, model_name):
         "response_format": {"type": "json_object"}
     }
 
-    # Tentativi progressivi con backoff in caso di Rate Limit (429)
     wait_times = [15, 25]
     for attempt in range(len(wait_times) + 1):
         try:
@@ -295,7 +298,6 @@ def scrape_and_check():
                     save_sent_item(item_id)
                     sent_items.add(str(item_id))
                 
-                # Pausa estesa a 8 secondi per non saturare il Rate Limit sui token
                 time.sleep(8)
                 
         except Exception as e:
