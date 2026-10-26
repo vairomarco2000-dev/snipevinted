@@ -1,3 +1,6 @@
 requests
 google-genai
 beautifulsoup4
+flask
+gspread
+oauth2client
