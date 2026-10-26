@@ -157,7 +157,7 @@ def evaluate_deal_with_groq(title, price, model_name):
         "response_format": {"type": "json_object"}
     }
 
-    wait_times = [10, 20]
+    wait_times = [15, 25]
     for attempt in range(len(wait_times) + 1):
         try:
             res = requests.post(url, json=payload, headers=headers, timeout=10)
@@ -167,7 +167,8 @@ def evaluate_deal_with_groq(title, price, model_name):
                 estimated_resell = float(data.get("estimated_resell_price", 0))
                 
                 net_profit = estimated_resell - price - 5.0
-                is_deal = net_profit >= 20.0
+                # Soglia profitto abbassata a 15€
+                is_deal = net_profit >= 15.0
                 
                 return {
                     "is_deal": is_deal,
@@ -221,8 +222,8 @@ def scrape_and_check():
             
             print(f"Annunci unici trovati: {len(unique_items)}", flush=True)
             
-            # Ridotto a 3 per categoria per massima velocità ed evitare rate limits
-            for i, link_tag in enumerate(unique_items[:3], 1):
+            # Riportato a 5 articoli per categoria
+            for i, link_tag in enumerate(unique_items[:5], 1):
                 item_url = link_tag.get("href")
                 if not item_url.startswith("http"):
                     item_url = "https://www.vinted.it" + item_url
@@ -234,7 +235,7 @@ def scrape_and_check():
                     item_id = item_url
 
                 if item_id in sent_items:
-                    print(f"[{i}/3] Articolo {item_id} già notificato in precedenza. Salto.", flush=True)
+                    print(f"[{i}/5] Articolo {item_id} già notificato in precedenza. Salto.", flush=True)
                     continue
 
                 card = link_tag
@@ -249,12 +250,12 @@ def scrape_and_check():
                 # Filtro parole chiave negative (difetti, ricambi, fake)
                 bad_keywords = ["ricambi", "non funziona", "rotto", "difettoso", "danneggiato", "da sistemare", "bloccato", "replica", "fake"]
                 if any(kw in lower_text for kw in bad_keywords):
-                    print(f"[{i}/3] Scartato per presenza parole chiave di difetti/ricambi/fake.", flush=True)
+                    print(f"[{i}/5] Scartato per presenza parole chiave di difetti/ricambi/fake.", flush=True)
                     continue
 
-                # Filtro specifico: se è una singola figurina Panini e non un album/lotto, scarta
+                # Filtro singole figurine Panini
                 if "figurina" in lower_text and "album" not in lower_text and "lotto" not in lower_text:
-                    print(f"[{i}/3] Scartato: è una singola figurina, non un album/lotto.", flush=True)
+                    print(f"[{i}/5] Scartato: è una singola figurina, non un album/lotto.", flush=True)
                     continue
 
                 price = 0.0
@@ -277,7 +278,7 @@ def scrape_and_check():
                 else:
                     title = "Articolo Vinted"
 
-                print(f"[{i}/3] Analisi per: '{title[:35]}' ({price}€)...", flush=True)
+                print(f"[{i}/5] Analisi per: '{title[:35]}' ({price}€)...", flush=True)
                 eval_res = evaluate_deal_with_groq(title, price, model_name)
                 print(f"Esito Groq: {eval_res}", flush=True)
                 
@@ -298,7 +299,8 @@ def scrape_and_check():
                     save_sent_item(item_id)
                     sent_items.add(str(item_id))
                 
-                time.sleep(8)
+                # Pausa sicura a 10 secondi per gestire i 5 articoli senza colli di bottiglia
+                time.sleep(10)
                 
         except Exception as e:
             print(f"Errore durante lo scraping di {target['name']}: {e}", flush=True)
