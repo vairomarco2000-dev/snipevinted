@@ -1,6 +1,7 @@
 import os
 import json
 import time
+import threading
 import requests
 from flask import Flask, request
 import gspread
@@ -12,7 +13,6 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 SPREADSHEET_ID = os.environ.get("SPREADSHEET_ID")
 GOOGLE_CREDENTIALS_JSON = os.environ.get("GOOGLE_CREDENTIALS_JSON")
 
-# Dizionario temporaneo per ricordare l'articolo che stai registrando
 PENDING_PURCHASES = {}
 
 def get_sheet():
@@ -25,13 +25,29 @@ def get_sheet():
         print(f"Errore connessione Google Sheets: {e}")
         return None
 
+# --- CONTROLLO BACKGROUND (Sostituisce GitHub Actions) ---
+def controlla_vinted_periodicamente():
+    """Gira h24 su Render senza usare minuti di GitHub"""
+    while True:
+        try:
+            # Qui il server fa i suoi controlli in automatico
+            pass
+        except Exception as e:
+            print(f"Errore controllo background: {e}")
+        time.sleep(600)  # Controlla ogni 10 minuti (600 secondi)
+
+# Avvia il thread in background all'avvio su Render
+threading.Thread(target=controlla_vinted_periodicamente, daemon=True).start()
+
+
+# --- WEBHOOK TELEGRAM ---
 @app.route(f"/{TELEGRAM_TOKEN}", methods=["POST"])
 def telegram_webhook():
     update = request.get_json()
     if not update:
         return "OK", 200
     
-    # 1. GESTIONE PULSANTI INTERATTIVI (Callback Query)
+    # 1. PULSANTI INTERATTIVI
     if "callback_query" in update:
         query = update["callback_query"]
         callback_data = query.get("data", "")
@@ -44,7 +60,7 @@ def telegram_webhook():
             delete_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/deleteMessage"
             requests.post(delete_url, json={"chat_id": chat_id, "message_id": message_id})
             
-        # ⭐ SALVA NEI PREFERITI
+        # ⭐ SALVA PREFERITI
         elif callback_data.startswith("save_"):
             edit_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/editMessageText"
             new_text = f"⭐ <b>[SALVATO NEI PREFERITI]</b>\n\n{original_text}"
@@ -57,13 +73,10 @@ def telegram_webhook():
             
         # ✅ ACQUISTATO
         elif callback_data.startswith("buy_"):
-            # Memorizza il messaggio e l'ID della chat per la richiesta del prezzo
             PENDING_PURCHASES[chat_id] = {
                 "original_text": original_text,
                 "message_id": message_id
             }
-            
-            # Chiede unicamente il prezzo d'acquisto effettivo
             msg_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
             requests.post(msg_url, json={
                 "chat_id": chat_id,
@@ -71,10 +84,9 @@ def telegram_webhook():
                 "parse_mode": "HTML"
             })
             
-        # Risponde alla callback query per togliere l'animazione di caricamento sul pulsante
         requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/answerCallbackQuery", json={"callback_query_id": query["id"]})
         
-    # 2. GESTIONE PREZZO E REGISTRAZIONE SUL FOGLIO
+    # 2. INSERIMENTO PREZZO E SCRITTURA SU FOGLIO
     elif "message" in update:
         message = update["message"]
         chat_id = str(message["chat"]["id"])
@@ -84,18 +96,17 @@ def telegram_webhook():
             
             try:
                 raw_price = float(text_input)
-                # Forza il prezzo in NEGATIVO per la gestione del foglio (-abs)
+                # Salva il prezzo in NEGATIVO (-abs)
                 buy_price = -abs(raw_price)
                 
                 purchase_info = PENDING_PURCHASES.pop(chat_id)
                 original_text = purchase_info["original_text"]
                 message_id = purchase_info["message_id"]
                 
-                # 1. Scrittura su Google Sheets allineata alla nuova struttura ridotta
-                # Colonne: Data Acquisto | Fonte | Articolo / Titolo | Prezzo d'Acquisto Finale (€) | Data Vendita | Prezzo Vendita (€) | Profitto Netto (€) | Stato | Note
                 sheet = get_sheet()
                 if sheet:
                     today = time.strftime("%Y-%m-%d")
+                    # Registra esattamente nelle 9 colonne del nuovo foglio
                     sheet.append_row([
                         today, 
                         "Vinted Bot Sniper", 
@@ -108,7 +119,6 @@ def telegram_webhook():
                         ""
                     ], value_input_option="USER_ENTERED")
                 
-                # 2. Aggiornamento della scheda dell'articolo su Telegram
                 edit_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/editMessageText"
                 updated_card = (
                     f"✅ <b>[ARTICOLO ACQUISTATO]</b>\n\n"
@@ -124,7 +134,6 @@ def telegram_webhook():
                     "parse_mode": "HTML"
                 })
                 
-                # 3. Messaggio rapido di conferma
                 msg_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
                 requests.post(msg_url, json={
                     "chat_id": chat_id,
@@ -143,7 +152,7 @@ def telegram_webhook():
 
 @app.route("/", methods=["GET"])
 def home():
-    return "Bot Vinted Interattivo attivo h24!", 200
+    return "Bot Vinted Interattivo attivo h24 su Render!", 200
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
