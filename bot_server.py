@@ -355,6 +355,13 @@ def controlla_vinted_periodicamente():
 thread_scraper = threading.Thread(target=controlla_vinted_periodicamente, daemon=True)
 thread_scraper.start()
 
+# --- MESSAGGIO DI TEST ALL'AVVIO ---
+try:
+    if TELEGRAM_TOKEN and TELEGRAM_CHAT_ID:
+        send_telegram_message(TELEGRAM_CHAT_ID, "🟢 <b>Bot Vinted avviato e collegato!</b>\nSe vedi questo messaggio, le notifiche Telegram funzionano al 100%.")
+except Exception as e:
+    print(f"Errore invio test Telegram: {e}", flush=True)
+
 # --- SERVER FLASK & WEBHOOK TELEGRAM ---
 user_states = {}
 
