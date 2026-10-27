@@ -28,21 +28,23 @@ def get_sheet():
 @app.route(f"/{TELEGRAM_TOKEN}", methods=["POST"])
 def telegram_webhook():
     update = request.get_json()
+    if not update:
+        return "OK", 200
     
-    # 1. GESTIONE PULSANTI INTERATTIVI
+    # 1. GESTIONE PULSANTI INTERATTIVI (Callback Query)
     if "callback_query" in update:
         query = update["callback_query"]
-        callback_data = query["data"]
+        callback_data = query.get("data", "")
         chat_id = str(query["message"]["chat"]["id"])
         message_id = query["message"]["message_id"]
-        original_text = query["message"]["text"]
+        original_text = query["message"].get("text", "")
         
-        # ❌ SCARTA
+        # ❌ SCARTA / ELIMINA
         if callback_data.startswith("dismiss_"):
             delete_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/deleteMessage"
             requests.post(delete_url, json={"chat_id": chat_id, "message_id": message_id})
             
-        # ⭐ SALVA
+        # ⭐ SALVA NEI PREFERITI
         elif callback_data.startswith("save_"):
             edit_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/editMessageText"
             new_text = f"⭐ <b>[SALVATO NEI PREFERITI]</b>\n\n{original_text}"
@@ -55,7 +57,7 @@ def telegram_webhook():
             
         # ✅ ACQUISTATO
         elif callback_data.startswith("buy_"):
-            # Memorizza il messaggio e l'ID della chat
+            # Memorizza il messaggio e l'ID della chat per la richiesta del prezzo
             PENDING_PURCHASES[chat_id] = {
                 "original_text": original_text,
                 "message_id": message_id
@@ -69,9 +71,10 @@ def telegram_webhook():
                 "parse_mode": "HTML"
             })
             
+        # Risponde alla callback query per togliere l'animazione di caricamento sul pulsante
         requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/answerCallbackQuery", json={"callback_query_id": query["id"]})
         
-    # 2. GESTIONE PREZZO E REGISTRAZIONE
+    # 2. GESTIONE PREZZO E REGISTRAZIONE SUL FOGLIO
     elif "message" in update:
         message = update["message"]
         chat_id = str(message["chat"]["id"])
@@ -80,29 +83,32 @@ def telegram_webhook():
             text_input = message["text"].replace(",", ".").strip()
             
             try:
-                buy_price = float(text_input)
+                raw_price = float(text_input)
+                # Forza il prezzo in NEGATIVO per la gestione del foglio (-abs)
+                buy_price = -abs(raw_price)
+                
                 purchase_info = PENDING_PURCHASES.pop(chat_id)
                 original_text = purchase_info["original_text"]
                 message_id = purchase_info["message_id"]
                 
-                # 1. Scrittura su Google Sheets (Registra Data, Titolo/Dettagli originali, Prezzo d'acquisto e Stato)
+                # 1. Scrittura su Google Sheets allineata alla nuova struttura ridotta
+                # Colonne: Data Acquisto | Fonte | Articolo / Titolo | Prezzo d'Acquisto Finale (€) | Data Vendita | Prezzo Vendita (€) | Profitto Netto (€) | Stato | Note
                 sheet = get_sheet()
                 if sheet:
-                    today = time.strftime("%d/%m/%Y")
+                    today = time.strftime("%Y-%m-%d")
                     sheet.append_row([
                         today, 
-                        "Vinted Bot", 
+                        "Vinted Bot Sniper", 
                         original_text[:100].replace('\n', ' '), 
                         buy_price, 
-                        0, 
-                        buy_price, 
                         "", 
-                        "", "", "", 
+                        "", 
+                        f"=SE(VAL.VUOTO(F{sheet.row_count + 1}); \"\"; F{sheet.row_count + 1}+D{sheet.row_count + 1})", 
                         "In Arrivo", 
                         ""
-                    ])
+                    ], value_input_option="USER_ENTERED")
                 
-                # 2. Aggiornamento del messaggio su Telegram (Mantiene l'articolo e la stima originale, aggiungendo il prezzo d'acquisto)
+                # 2. Aggiornamento della scheda dell'articolo su Telegram
                 edit_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/editMessageText"
                 updated_card = (
                     f"✅ <b>[ARTICOLO ACQUISTATO]</b>\n\n"
