@@ -32,30 +32,22 @@ TARGET_QUERIES = [
     {"name": "Streetwear Generico", "query": "felpa carhartt stussy supreme", "price_to": 50}
 ]
 
-# --- CREAZIONE SCRAPER CON SESSIONE PERSISTENTE ---
-DEFAULT_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+# User-Agents realistici ruotati
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+]
 
-def get_authenticated_scraper():
+def get_fresh_scraper():
+    # Usiamo cloudscraper configurato per imitare un browser desktop reale
     scraper = cloudscraper.create_scraper(
-        browser={'browser': 'chrome', 'platform': 'windows', 'mobile': False}
+        browser={
+            'browser': 'chrome',
+            'platform': 'windows',
+            'desktop': True
+        }
     )
-    headers = {
-        "User-Agent": DEFAULT_USER_AGENT,
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-        "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7",
-        "Connection": "keep-alive"
-    }
-    
-    # 1. Chiama la home per inizializzare la sessione e superare il challenge Cloudflare
-    try:
-        resp = scraper.get("https://www.vinted.it/", headers=headers, timeout=15)
-        if resp.status_code == 200:
-            print("   [SESSION] Cookie di sessione Vinted acquisiti con successo.", flush=True)
-        else:
-            print(f"   [SESSION WARNING] Status handshake home: {resp.status_code}", flush=True)
-    except Exception as e:
-        print(f"   [SESSION ERROR] Impossibile contattare la home: {e}", flush=True)
-
     return scraper
 
 # --- GOOGLE SHEETS INTEGRATION ---
@@ -124,7 +116,7 @@ def save_pending(data):
 
 # --- TELEGRAM ---
 def send_telegram_alert_with_buttons(title, price, est_price, profit, item_url, item_id):
-    scraper = cloudscraper.create_scraper()
+    scraper = get_fresh_scraper()
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     msg = (
         f"🚨 <b>NUOVA OPPORTUNITÀ RESELL!</b>\n\n"
@@ -158,7 +150,7 @@ def send_telegram_alert_with_buttons(title, price, est_price, profit, item_url, 
         print(f"Errore invio Telegram: {e}", flush=True)
 
 def send_telegram_message(chat_id, text):
-    scraper = cloudscraper.create_scraper()
+    scraper = get_fresh_scraper()
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {"chat_id": chat_id, "text": text, "parse_mode": "HTML"}
     try:
@@ -171,7 +163,7 @@ def evaluate_deal_with_groq(title, price):
     if not GROQ_API_KEY:
         return {"is_deal": False, "estimated_resell_price": 0, "estimated_profit": 0}
         
-    scraper = cloudscraper.create_scraper()
+    scraper = get_fresh_scraper()
     url = "https://api.groq.com/openai/v1/chat/completions"
     headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
     prompt = f"""
@@ -208,10 +200,10 @@ def evaluate_deal_with_groq(title, price):
         print(f"Errore chiamata Groq: {e}", flush=True)
     return {"is_deal": False, "estimated_resell_price": 0, "estimated_profit": 0}
 
-# --- SCRAPING CON HANDSHAKE PERSISTENTE ---
+# --- SCRAPING DIRETTO API VINTED (SENZA HANDSHAKE HOME) ---
 def scrape_and_check():
     sent_items = load_sent_items()
-    scraper = get_authenticated_scraper()
+    scraper = get_fresh_scraper()
 
     for index, target in enumerate(TARGET_QUERIES, 1):
         print(f"--- Controllo {target['name']} ({index}/{len(TARGET_QUERIES)}) ---", flush=True)
@@ -219,25 +211,21 @@ def scrape_and_check():
             api_url = f"https://www.vinted.it/api/v2/catalog/items?search_text={target['query']}&price_to={target['price_to']}&currency=EUR&order=newest_first"
             
             headers = {
-                "User-Agent": DEFAULT_USER_AGENT,
+                "User-Agent": random.choice(USER_AGENTS),
                 "Accept": "application/json, text/plain, */*",
                 "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7",
-                "Referer": "https://www.vinted.it/catalog",
-                "X-Requested-With": "XMLHttpRequest"
+                "Referer": "https://www.vinted.it/",
+                "Origin": "https://www.vinted.it",
+                "Sec-Ch-Ua": '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
+                "Sec-Ch-Ua-Mobile": "?0",
+                "Sec-Ch-Ua-Platform": '"Windows"'
             }
             
             res = scraper.get(api_url, headers=headers, timeout=12)
-            
-            # Se la sessione scade o viene bloccata, riprova una volta ri-autenticando la sessione
-            if res.status_code == 403:
-                print(f"   └─ [RE-TRY 403] Rigenerazione handshake Vinted...", flush=True)
-                scraper = get_authenticated_scraper()
-                time.sleep(3)
-                res = scraper.get(api_url, headers=headers, timeout=12)
 
             if res.status_code != 200:
                 print(f"   └─ Errore API Vinted (Status {res.status_code})", flush=True)
-                time.sleep(4)
+                time.sleep(3)
                 continue
                 
             data = res.json()
@@ -280,13 +268,13 @@ def scrape_and_check():
                     save_sent_item(item_id)
                     sent_items.add(item_id)
                 
-                time.sleep(random.uniform(2.5, 4.0))
+                time.sleep(random.uniform(2.0, 3.5))
                 
         except Exception as e:
             print(f"Errore scraping {target['name']}: {e}", flush=True)
 
 def controlla_vinted_periodicamente():
-    print(">>> SCRAPER API VINTED AVVIATO SU RENDER (H24) <<<", flush=True)
+    print(">>> SCRAPER API DIRETTO VINTED AVVIATO SU RENDER (H24) <<<", flush=True)
     while True:
         try:
             scrape_and_check()
@@ -301,7 +289,7 @@ thread_scraper.start()
 # --- MESSAGGIO AVVIO ---
 try:
     if TELEGRAM_TOKEN and TELEGRAM_CHAT_ID:
-        send_telegram_message(TELEGRAM_CHAT_ID, "🟢 <b>Bot Vinted (Handshake Session) avviato!</b>\nMonitoraggio H24 attivo.")
+        send_telegram_message(TELEGRAM_CHAT_ID, "🟢 <b>Bot Vinted (Direct API) avviato!</b>\nMonitoraggio H24 attivo.")
 except Exception as e:
     print(f"Errore invio test Telegram: {e}", flush=True)
 
@@ -325,7 +313,7 @@ def webhook():
         chat_id = cb["message"]["chat"]["id"]
         message_id = cb["message"]["message_id"]
 
-        scraper = cloudscraper.create_scraper()
+        scraper = get_fresh_scraper()
         scraper.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/answerCallbackQuery", json={"callback_query_id": cb_id})
 
         if cb_data.startswith("buy_"):
