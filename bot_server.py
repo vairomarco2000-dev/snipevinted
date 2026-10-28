@@ -2,12 +2,12 @@ import os
 import json
 import re
 import time
+import random
 import threading
-import requests
-from bs4 import BeautifulSoup
 from flask import Flask, request, jsonify
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
+import cloudscraper
 
 app = Flask(__name__)
 
@@ -28,14 +28,14 @@ TARGET_URLS = [
     },
     {
         "name": "Workwear & Denim (Carhartt WIP, Dickies)", 
-        "url": "https://www.vinted.it/catalog?brand_ids[]=53&brand_ids[]=371&catalog[]=1452&catalog[]=257&catalog[]=30&price_to=45.00&currency=EUR&status_ids[]=1&status_ids[]=2&status_ids[]=6&order=newest_first"
+        "url": "https://www.vinted.it/catalog?search_text=carhartt+dickies&price_to=45.00&currency=EUR&order=newest_first"
     },
     {
-        "name": "Outdoor & Gorpcore (Patagonia, Arc'teryx, Mammut, TNF)", 
-        "url": "https://www.vinted.it/catalog?brand_ids[]=2703&brand_ids[]=1775&brand_ids[]=5977&brand_ids[]=364&catalog[]=1452&catalog[]=30&price_to=50.00&currency=EUR&status_ids[]=1&status_ids[]=2&status_ids[]=6&order=newest_first"
+        "name": "Outdoor & Gorpcore (Patagonia, Arc'teryx, TNF)", 
+        "url": "https://www.vinted.it/catalog?search_text=patagonia+arcteryx+tnf&price_to=50.00&currency=EUR&order=newest_first"
     },
     {
-        "name": "Collezionismo - Diabolik & Fumetti D'Autore", 
+        "name": "Collezionismo - Diabolik & Fumetti", 
         "url": "https://www.vinted.it/catalog?search_text=lotto+diabolik+fumetti+vintage&price_to=25.00&currency=EUR&order=newest_first"
     },
     {
@@ -47,7 +47,7 @@ TARGET_URLS = [
         "url": "https://www.vinted.it/catalog?search_text=giochi+ps1+ps2+nintendo&price_to=30.00&currency=EUR&order=newest_first"
     },
     {
-        "name": "Maglie da Calcio & Sportwear Vintage", 
+        "name": "Maglie da Calcio Vintage", 
         "url": "https://www.vinted.it/catalog?search_text=maglia+calcio+vintage&price_to=30.00&currency=EUR&order=newest_first"
     },
     {
@@ -60,12 +60,15 @@ TARGET_URLS = [
     }
 ]
 
-session = requests.Session()
-session.headers.update({
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-    "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7",
-})
+# --- CREAZIONE SCRAPER ANTI-CLOUDFLARE ---
+def create_anti_cloudflare_scraper():
+    return cloudscraper.create_scraper(
+        browser={
+            'browser': 'chrome',
+            'platform': 'windows',
+            'desktop': True
+        }
+    )
 
 # --- GOOGLE SHEETS INTEGRATION ---
 def get_sheet():
@@ -146,6 +149,7 @@ def save_pending(data):
 
 # --- INVIO TELEGRAM CON PULSANTI ---
 def send_telegram_alert_with_buttons(title, price, est_price, profit, item_url, item_id):
+    scraper = create_anti_cloudflare_scraper()
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     msg = (
         f"🚨 <b>NUOVA OPPORTUNITÀ RESELL!</b>\n\n"
@@ -173,7 +177,7 @@ def send_telegram_alert_with_buttons(title, price, est_price, profit, item_url, 
         "reply_markup": json.dumps(reply_markup)
     }
     try:
-        requests.post(url, data=payload, timeout=5)
+        scraper.post(url, data=payload, timeout=5)
         pending = load_pending()
         pending[str(item_id)] = {
             "title": title,
@@ -186,10 +190,11 @@ def send_telegram_alert_with_buttons(title, price, est_price, profit, item_url, 
         print(f"Errore invio Telegram: {e}", flush=True)
 
 def send_telegram_message(chat_id, text):
+    scraper = create_anti_cloudflare_scraper()
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {"chat_id": chat_id, "text": text, "parse_mode": "HTML"}
     try:
-        requests.post(url, data=payload, timeout=5)
+        scraper.post(url, data=payload, timeout=5)
     except Exception as e:
         print(f"Errore invio messaggio semplice: {e}", flush=True)
 
@@ -202,6 +207,7 @@ def evaluate_deal_with_groq(title, price, model_name):
         print("[GROQ ERROR] API Key mancante nelle variabili d'ambiente.", flush=True)
         return {"is_deal": False, "estimated_resell_price": 0, "estimated_profit": 0}
         
+    scraper = create_anti_cloudflare_scraper()
     url = "https://api.groq.com/openai/v1/chat/completions"
     headers = {
         "Authorization": f"Bearer {GROQ_API_KEY}",
@@ -229,7 +235,7 @@ def evaluate_deal_with_groq(title, price, model_name):
     wait_times = [15, 25]
     for attempt in range(len(wait_times) + 1):
         try:
-            res = requests.post(url, json=payload, headers=headers, timeout=10)
+            res = scraper.post(url, json=payload, headers=headers, timeout=10)
             if res.status_code == 200:
                 content = res.json()["choices"][0]["message"]["content"]
                 data = json.loads(content)
@@ -261,26 +267,30 @@ def evaluate_deal_with_groq(title, price, model_name):
         
     return {"is_deal": False, "estimated_resell_price": 0, "estimated_profit": 0}
 
-# --- SCRAPING VINTED & CICLO AUTOMATICO ---
-def init_session():
-    try:
-        session.get("https://www.vinted.it", timeout=10)
-    except Exception as e:
-        print(f"Errore inizializzazione sessione: {e}", flush=True)
-
+# --- SCRAPING VINTED AUTOMATICO ---
 def scrape_and_check():
     sent_items = load_sent_items()
     model_name = get_dynamic_model()
-    init_session()
     
+    scraper = create_anti_cloudflare_scraper()
+    
+    # Primo passaggio in homepage per ottenere i cookie trasparenti
+    try:
+        scraper.get("https://www.vinted.it", timeout=12)
+    except Exception as e:
+        print(f"Errore connessione iniziale Vinted: {e}", flush=True)
+
     for index, target in enumerate(TARGET_URLS, 1):
         print(f"--- Controllo {target['name']} ({index}/{len(TARGET_URLS)}) ---", flush=True)
         try:
-            res = session.get(target['url'], timeout=10)
+            res = scraper.get(target['url'], timeout=12)
+            
             if res.status_code != 200:
                 print(f"   └─ Errore risposta Vinted (Status {res.status_code})", flush=True)
+                time.sleep(4)
                 continue
             
+            from bs4 import BeautifulSoup
             soup = BeautifulSoup(res.text, "html.parser")
             all_links = soup.find_all("a", href=lambda h: h and "/items/" in h)
             
@@ -293,7 +303,7 @@ def scrape_and_check():
                     unique_items.append(link)
             
             if not unique_items:
-                print("   └─ Nessun articolo trovato in questa ricerca.", flush=True)
+                print("   └─ Nessun articolo estratto (Pagina vuota o protetta).", flush=True)
                 continue
 
             for i, link_tag in enumerate(unique_items[:10], 1):
@@ -349,7 +359,7 @@ def scrape_and_check():
                     save_sent_item(item_id)
                     sent_items.add(str(item_id))
                 
-                time.sleep(3)
+                time.sleep(random.uniform(3.0, 5.0))
                 
         except Exception as e:
             print(f"Errore scraping {target['name']}: {e}", flush=True)
@@ -361,7 +371,7 @@ def controlla_vinted_periodicamente():
             scrape_and_check()
         except Exception as e:
             print(f"Errore ciclo generale: {e}", flush=True)
-        time.sleep(90)
+        time.sleep(random.uniform(90.0, 120.0))
 
 # --- AVVIO THREAD SCRAPER ---
 thread_scraper = threading.Thread(target=controlla_vinted_periodicamente, daemon=True)
