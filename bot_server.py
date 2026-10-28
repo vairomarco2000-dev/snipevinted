@@ -1,6 +1,5 @@
 import os
 import json
-import re
 import time
 import random
 import threading
@@ -21,47 +20,20 @@ SHEET_NAME = os.environ.get("SHEET_NAME", "Vinted_Resell")
 SENT_ITEMS_FILE = "sent_items.json"
 PENDING_PURCHASES_FILE = "pending_purchases.json"
 
-TARGET_URLS = [
-    {
-        "name": "Streetwear - Weekend Offender", 
-        "url": "https://www.vinted.it/catalog?search_text=weekend+offender&price_to=45.00&currency=EUR&order=newest_first"
-    },
-    {
-        "name": "Workwear & Denim (Carhartt WIP, Dickies)", 
-        "url": "https://www.vinted.it/catalog?search_text=carhartt+dickies&price_to=45.00&currency=EUR&order=newest_first"
-    },
-    {
-        "name": "Outdoor & Gorpcore (Patagonia, Arc'teryx, TNF)", 
-        "url": "https://www.vinted.it/catalog?search_text=patagonia+arcteryx+tnf&price_to=50.00&currency=EUR&order=newest_first"
-    },
-    {
-        "name": "Collezionismo - Diabolik & Fumetti", 
-        "url": "https://www.vinted.it/catalog?search_text=lotto+diabolik+fumetti+vintage&price_to=25.00&currency=EUR&order=newest_first"
-    },
-    {
-        "name": "Collezionismo - Album Panini Vintage", 
-        "url": "https://www.vinted.it/catalog?search_text=album+panini+calciatori&price_to=35.00&currency=EUR&order=newest_first"
-    },
-    {
-        "name": "Collezionismo - Retrogaming (PS1, PS2, Nintendo)", 
-        "url": "https://www.vinted.it/catalog?search_text=giochi+ps1+ps2+nintendo&price_to=30.00&currency=EUR&order=newest_first"
-    },
-    {
-        "name": "Maglie da Calcio Vintage", 
-        "url": "https://www.vinted.it/catalog?search_text=maglia+calcio+vintage&price_to=30.00&currency=EUR&order=newest_first"
-    },
-    {
-        "name": "Sneakers / Brand Selezionati", 
-        "url": "https://www.vinted.it/catalog?search_text=sneakers+nike+adidas+jordan&price_to=50.00&currency=EUR&order=newest_first"
-    },
-    {
-        "name": "Streetwear Generico", 
-        "url": "https://www.vinted.it/catalog?search_text=felpa+carhartt+stussy+supreme&price_to=50.00&currency=EUR&order=newest_first"
-    }
+# Definiamo le ricerche tramite le parole chiave per l'API JSON di Vinted
+TARGET_QUERIES = [
+    {"name": "Streetwear - Weekend Offender", "query": "weekend offender", "price_to": 45},
+    {"name": "Workwear & Denim (Carhartt/Dickies)", "query": "carhartt dickies", "price_to": 45},
+    {"name": "Outdoor & Gorpcore (Patagonia/TNF)", "query": "patagonia arcteryx tnf", "price_to": 50},
+    {"name": "Collezionismo - Diabolik & Fumetti", "query": "lotto diabolik fumetti vintage", "price_to": 25},
+    {"name": "Collezionismo - Album Panini Vintage", "query": "album panini calciatori", "price_to": 35},
+    {"name": "Collezionismo - Retrogaming", "query": "giochi ps1 ps2 nintendo", "price_to": 30},
+    {"name": "Maglie da Calcio Vintage", "query": "maglia calcio vintage", "price_to": 30},
+    {"name": "Sneakers / Brand Selezionati", "query": "sneakers nike adidas jordan", "price_to": 50},
+    {"name": "Streetwear Generico", "query": "felpa carhartt stussy supreme", "price_to": 50}
 ]
 
-# --- CREAZIONE SCRAPER ANTI-CLOUDFLARE ---
-def create_anti_cloudflare_scraper():
+def create_scraper():
     return cloudscraper.create_scraper(
         browser={
             'browser': 'chrome',
@@ -73,7 +45,6 @@ def create_anti_cloudflare_scraper():
 # --- GOOGLE SHEETS INTEGRATION ---
 def get_sheet():
     if not GOOGLE_CREDENTIALS_JSON:
-        print("Credenziali Google Sheets non trovate nelle variabili d'ambiente.", flush=True)
         return None
     try:
         creds_dict = json.loads(GOOGLE_CREDENTIALS_JSON)
@@ -92,26 +63,14 @@ def append_to_sheet(title, buy_price, est_resell, item_url):
     try:
         today = time.strftime("%Y-%m-%d")
         negative_buy_price = -abs(float(buy_price))
-        
-        row = [
-            today,                  # Data
-            title,                  # Nome Articolo
-            negative_buy_price,     # Prezzo d'Acquisto (-)
-            "",                     # Spese Spedizione/Commissioni
-            "",                     # Prezzo Vendita Reale (vuoto)
-            est_resell,             # Valore Stimato
-            "=C{row}+E{row}",       # Profitto Netto (Formula)
-            "In Vendita",           # Stato
-            item_url                # Link Vinted
-        ]
-        
+        row = [today, title, negative_buy_price, "", "", est_resell, "=C{row}+E{row}", "In Vendita", item_url]
         sheet.append_row(row, value_input_option="USER_ENTERED")
         return True
     except Exception as e:
         print(f"Errore scrittura su Google Sheet: {e}", flush=True)
         return False
 
-# --- GESTIONE STATO TRACCIAMENTO ---
+# --- GESTIONE STATO ---
 def load_sent_items():
     if os.path.exists(SENT_ITEMS_FILE):
         try:
@@ -145,11 +104,11 @@ def save_pending(data):
         with open(PENDING_PURCHASES_FILE, "w") as f:
             json.dump(data, f)
     except Exception as e:
-        print(f"Errore salvataggio pending_purchases: {e}", flush=True)
+        print(f"Errore salvataggio pending: {e}", flush=True)
 
-# --- INVIO TELEGRAM CON PULSANTI ---
+# --- TELEGRAM ---
 def send_telegram_alert_with_buttons(title, price, est_price, profit, item_url, item_id):
-    scraper = create_anti_cloudflare_scraper()
+    scraper = create_scraper()
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     msg = (
         f"🚨 <b>NUOVA OPPORTUNITÀ RESELL!</b>\n\n"
@@ -159,7 +118,6 @@ def send_telegram_alert_with_buttons(title, price, est_price, profit, item_url, 
         f"💰 <b>Margine netto stimato:</b> +{profit} €\n\n"
         f"🔗 <a href='{item_url}'>Visualizza su Vinted</a>"
     )
-    
     reply_markup = {
         "inline_keyboard": [
             [
@@ -169,7 +127,6 @@ def send_telegram_alert_with_buttons(title, price, est_price, profit, item_url, 
             ]
         ]
     }
-    
     payload = {
         "chat_id": TELEGRAM_CHAT_ID,
         "text": msg,
@@ -179,18 +136,13 @@ def send_telegram_alert_with_buttons(title, price, est_price, profit, item_url, 
     try:
         scraper.post(url, data=payload, timeout=5)
         pending = load_pending()
-        pending[str(item_id)] = {
-            "title": title,
-            "vinted_price": price,
-            "est_resell": est_price,
-            "url": item_url
-        }
+        pending[str(item_id)] = {"title": title, "vinted_price": price, "est_resell": est_price, "url": item_url}
         save_pending(pending)
     except Exception as e:
         print(f"Errore invio Telegram: {e}", flush=True)
 
 def send_telegram_message(chat_id, text):
-    scraper = create_anti_cloudflare_scraper()
+    scraper = create_scraper()
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {"chat_id": chat_id, "text": text, "parse_mode": "HTML"}
     try:
@@ -198,21 +150,14 @@ def send_telegram_message(chat_id, text):
     except Exception as e:
         print(f"Errore invio messaggio semplice: {e}", flush=True)
 
-# --- VALUTAZIONE GROQ AI ---
-def get_dynamic_model():
-    return "llama-3.3-70b-versatile"
-
-def evaluate_deal_with_groq(title, price, model_name):
+# --- GROQ AI ---
+def evaluate_deal_with_groq(title, price):
     if not GROQ_API_KEY:
-        print("[GROQ ERROR] API Key mancante nelle variabili d'ambiente.", flush=True)
         return {"is_deal": False, "estimated_resell_price": 0, "estimated_profit": 0}
         
-    scraper = create_anti_cloudflare_scraper()
+    scraper = create_scraper()
     url = "https://api.groq.com/openai/v1/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {GROQ_API_KEY}",
-        "Content-Type": "application/json"
-    }
+    headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
     prompt = f"""
     Sei un reseller professionista ed estremamente scettico.
     Analizza questo articolo in vendita su Vinted:
@@ -224,148 +169,109 @@ def evaluate_deal_with_groq(title, price, model_name):
     Rispondi STRICTLY in formato JSON privo di qualsiasi testo extra con questa struttura esatta:
     {{"estimated_resell_price": 0}}
     """
-
     payload = {
-        "model": model_name,
+        "model": "llama-3.3-70b-versatile",
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.1,
         "response_format": {"type": "json_object"}
     }
 
-    wait_times = [15, 25]
-    for attempt in range(len(wait_times) + 1):
-        try:
-            res = scraper.post(url, json=payload, headers=headers, timeout=10)
-            if res.status_code == 200:
-                content = res.json()["choices"][0]["message"]["content"]
-                data = json.loads(content)
-                estimated_resell = float(data.get("estimated_resell_price", 0))
-                
-                net_profit = estimated_resell - price - 5.0
-                is_deal = net_profit >= 10.0
-                
-                status_str = "APPROVATO (Notifica Inviata!)" if is_deal else "SCARTATO (Margine < 10€)"
-                print(f"   └─ [GROQ] Prezzo: {price}€ | Est: {estimated_resell}€ | Profitto: {round(net_profit, 2)}€ -> {status_str}", flush=True)
-                
-                return {
-                    "is_deal": is_deal,
-                    "estimated_resell_price": estimated_resell,
-                    "estimated_profit": round(net_profit, 2)
-                }
-            elif res.status_code == 429:
-                if attempt < len(wait_times):
-                    time.sleep(wait_times[attempt])
-                    continue
-                else:
-                    break
-            else:
-                print(f"   └─ [GROQ ERROR] Status code {res.status_code}: {res.text}", flush=True)
-                break
-        except Exception as e:
-            print(f"Errore chiamata Groq: {e}", flush=True)
-            break
-        
+    try:
+        res = scraper.post(url, json=payload, headers=headers, timeout=10)
+        if res.status_code == 200:
+            content = res.json()["choices"][0]["message"]["content"]
+            data = json.loads(content)
+            estimated_resell = float(data.get("estimated_resell_price", 0))
+            net_profit = estimated_resell - price - 5.0
+            is_deal = net_profit >= 10.0
+            
+            status_str = "APPROVATO (Notifica Inviata!)" if is_deal else "SCARTATO (Margine < 10€)"
+            print(f"   └─ [GROQ] Prezzo: {price}€ | Est: {estimated_resell}€ | Profitto: {round(net_profit, 2)}€ -> {status_str}", flush=True)
+            return {"is_deal": is_deal, "estimated_resell_price": estimated_resell, "estimated_profit": round(net_profit, 2)}
+    except Exception as e:
+        print(f"Errore chiamata Groq: {e}", flush=True)
     return {"is_deal": False, "estimated_resell_price": 0, "estimated_profit": 0}
 
-# --- SCRAPING VINTED AUTOMATICO ---
+# --- SCRAPING TRAMITE API JSON UFFICIALE DI VINTED ---
 def scrape_and_check():
     sent_items = load_sent_items()
-    model_name = get_dynamic_model()
+    scraper = create_scraper()
     
-    scraper = create_anti_cloudflare_scraper()
-    
-    # Primo passaggio in homepage per ottenere i cookie trasparenti
+    # Inizializziamo la sessione prendendo i cookie iniziali dalla home di Vinted
     try:
-        scraper.get("https://www.vinted.it", timeout=12)
+        init_res = scraper.get("https://www.vinted.it", headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}, timeout=10)
+        cookies = scraper.get_cookie_jar()
     except Exception as e:
-        print(f"Errore connessione iniziale Vinted: {e}", flush=True)
+        print(f"Errore inizializzazione sessione Vinted: {e}", flush=True)
+        cookies = None
 
-    for index, target in enumerate(TARGET_URLS, 1):
-        print(f"--- Controllo {target['name']} ({index}/{len(TARGET_URLS)}) ---", flush=True)
+    for index, target in enumerate(TARGET_QUERIES, 1):
+        print(f"--- Controllo {target['name']} ({index}/{len(TARGET_QUERIES)}) ---", flush=True)
         try:
-            res = scraper.get(target['url'], timeout=12)
+            # Chiamata diretta all'API JSON di Vinted (evita totalmente il blocco HTML/Cloudflare)
+            api_url = f"https://www.vinted.it/api/v2/catalog/items?search_text={target['query']}&price_to={target['price_to']}&currency=EUR&order=newest_first"
+            
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                "Accept": "application/json, text/plain, */*",
+                "Referer": "https://www.vinted.it/"
+            }
+            
+            res = scraper.get(api_url, headers=headers, cookies=cookies, timeout=12)
             
             if res.status_code != 200:
-                print(f"   └─ Errore risposta Vinted (Status {res.status_code})", flush=True)
-                time.sleep(4)
+                print(f"   └─ Errore API Vinted (Status {res.status_code})", flush=True)
+                time.sleep(3)
                 continue
-            
-            from bs4 import BeautifulSoup
-            soup = BeautifulSoup(res.text, "html.parser")
-            all_links = soup.find_all("a", href=lambda h: h and "/items/" in h)
-            
-            unique_items = []
-            seen_urls = set()
-            for link in all_links:
-                href = link.get("href")
-                if href not in seen_urls:
-                    seen_urls.add(href)
-                    unique_items.append(link)
-            
-            if not unique_items:
-                print("   └─ Nessun articolo estratto (Pagina vuota o protetta).", flush=True)
-                continue
-
-            for i, link_tag in enumerate(unique_items[:10], 1):
-                item_url = link_tag.get("href")
-                if not item_url.startswith("http"):
-                    item_url = "https://www.vinted.it" + item_url
                 
-                item_id_match = re.search(r'/items/(\d+)', item_url)
-                item_id = item_id_match.group(1) if item_id_match else item_url
+            data = res.json()
+            items = data.get("items", [])
+            
+            if not items:
+                print("   └─ Nessun articolo trovato in questa ricerca.", flush=True)
+                continue
 
+            for item in items[:10]:
+                item_id = str(item.get("id"))
                 if item_id in sent_items:
                     continue
+                    
+                title = item.get("title", "Articolo Vinted")
+                item_url = item.get("url", "")
+                
+                # Estrazione prezzo dal JSON dell'API
+                price_dict = item.get("price", {})
+                try:
+                    price = float(price_dict.get("amount", 0))
+                except (ValueError, TypeError):
+                    price = 0.0
+                    
+                if price <= 0:
+                    continue
 
-                card = link_tag
-                for _ in range(3):
-                    if card and card.parent:
-                        card = card.parent
-                
-                card_text = card.get_text(separator=" ", strip=True) if card else link_tag.get_text(separator=" ", strip=True)
-                lower_text = card_text.lower()
-                
+                lower_text = title.lower()
                 bad_keywords = ["ricambi", "non funziona", "rotto", "difettoso", "danneggiato", "da sistemare", "bloccato", "replica", "fake"]
                 if any(kw in lower_text for kw in bad_keywords):
                     continue
 
-                if "figurina" in lower_text and "album" not in lower_text and "lotto" not in lower_text:
-                    continue
-
-                price = 0.0
-                price_match = re.search(r'(\d+[\.,]\d{2})\s*€|€\s*(\d+[\.,]\d{2})|(\d+)\s*€|€\s*(\d+)', card_text)
-                if price_match:
-                    groups = [g for g in price_match.groups() if g is not None]
-                    if groups:
-                        try:
-                            price = float(groups[0].replace(",", "."))
-                        except ValueError:
-                            pass
-                
-                if price <= 0:
-                    continue
-                
-                parts = item_url.split('/')[-1].split('?')[0].split('-')
-                title = " ".join(parts[1:]).title() if len(parts) > 1 else "Articolo Vinted"
-
                 print(f"👉 [ESAMINO] {title[:35]} | Prezzo Vinted: {price}€", flush=True)
 
-                eval_res = evaluate_deal_with_groq(title, price, model_name)
+                eval_res = evaluate_deal_with_groq(title, price)
                 
                 if eval_res.get("is_deal"):
                     profit = eval_res.get("estimated_profit")
                     est_price = eval_res.get("estimated_resell_price")
                     send_telegram_alert_with_buttons(title, price, est_price, profit, item_url, item_id)
                     save_sent_item(item_id)
-                    sent_items.add(str(item_id))
+                    sent_items.add(item_id)
                 
-                time.sleep(random.uniform(3.0, 5.0))
+                time.sleep(random.uniform(2.0, 3.5))
                 
         except Exception as e:
             print(f"Errore scraping {target['name']}: {e}", flush=True)
 
 def controlla_vinted_periodicamente():
-    print(">>> SCRAPER VINTED AVVIATO SU RENDER (H24) <<<", flush=True)
+    print(">>> SCRAPER API VINTED AVVIATO SU RENDER (H24) <<<", flush=True)
     while True:
         try:
             scrape_and_check()
@@ -373,23 +279,23 @@ def controlla_vinted_periodicamente():
             print(f"Errore ciclo generale: {e}", flush=True)
         time.sleep(random.uniform(90.0, 120.0))
 
-# --- AVVIO THREAD SCRAPER ---
+# --- AVVIO THREAD ---
 thread_scraper = threading.Thread(target=controlla_vinted_periodicamente, daemon=True)
 thread_scraper.start()
 
-# --- MESSAGGIO DI TEST ALL'AVVIO ---
+# --- MESSAGGIO AVVIO ---
 try:
     if TELEGRAM_TOKEN and TELEGRAM_CHAT_ID:
-        send_telegram_message(TELEGRAM_CHAT_ID, "🟢 <b>Bot Vinted avviato e collegato!</b>\nSe vedi questo messaggio, le notifiche Telegram funzionano al 100%.")
+        send_telegram_message(TELEGRAM_CHAT_ID, "🟢 <b>Bot Vinted (Motore API) avviato!</b>\nNiente più blocchi 403, caccia agli affari attiva.")
 except Exception as e:
     print(f"Errore invio test Telegram: {e}", flush=True)
 
-# --- SERVER FLASK & WEBHOOK TELEGRAM ---
+# --- SERVER FLASK ---
 user_states = {}
 
 @app.route('/', methods=['GET', 'HEAD'])
 def index():
-    return "Bot Vinted Interattivo attivo h24 su Render!", 200
+    return "Bot Vinted API attivo h24 su Render!", 200
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
@@ -404,26 +310,19 @@ def webhook():
         chat_id = cb["message"]["chat"]["id"]
         message_id = cb["message"]["message_id"]
 
-        requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/answerCallbackQuery", json={"callback_query_id": cb_id})
+        scraper = create_scraper()
+        scraper.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/answerCallbackQuery", json={"callback_query_id": cb_id})
 
         if cb_data.startswith("buy_"):
             item_id = cb_data.replace("buy_", "")
             pending = load_pending()
             item_info = pending.get(item_id, {})
-            
-            user_states[chat_id] = {
-                "action": "waiting_price",
-                "item_id": item_id,
-                "item_info": item_info
-            }
+            user_states[chat_id] = {"action": "waiting_price", "item_id": item_id, "item_info": item_info}
             send_telegram_message(chat_id, "💰 <b>Inserisci il prezzo pagato d'acquisto</b> (es. 15 o 17.50):")
-
         elif cb_data.startswith("save_"):
             send_telegram_message(chat_id, "⭐ <b>Articolo salvato nei preferiti!</b>")
-
         elif cb_data.startswith("dismiss_"):
-            requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/deleteMessage", json={"chat_id": chat_id, "message_id": message_id})
-
+            scraper.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/deleteMessage", json={"chat_id": chat_id, "message_id": message_id})
         return "OK", 200
 
     if "message" in data and "text" in data["message"]:
@@ -434,7 +333,6 @@ def webhook():
         if chat_id in user_states and user_states[chat_id].get("action") == "waiting_price":
             state = user_states.pop(chat_id)
             item_info = state.get("item_info", {})
-            
             clean_text = text.replace(",", ".")
             try:
                 buy_price = float(clean_text)
@@ -446,10 +344,9 @@ def webhook():
                 if success:
                     send_telegram_message(chat_id, f"✅ <b>Acquisto registrato!</b>\n📦 {title}\n💸 Prezzo registrato: <code>-{buy_price:.2f} €</code> su Google Sheet.")
                 else:
-                    send_telegram_message(chat_id, "⚠️ Errore durante la registrazione su Google Sheet. Verifica la configurazione.")
+                    send_telegram_message(chat_id, "⚠️ Errore Google Sheet.")
             except ValueError:
-                send_telegram_message(chat_id, "❌ Prezzo non valido. Inserisci solo un numero (es. 15 o 17.50). Ripeti l'operazione cliccando nuovamente su Acquistato.")
-
+                send_telegram_message(chat_id, "❌ Prezzo non valido. Riprova.")
         return "OK", 200
 
     return "OK", 200
