@@ -52,11 +52,11 @@ TARGET_URLS = [
     },
     {
         "name": "Sneakers / Brand Selezionati", 
-        "url": "https://www.vinted.it/catalog?search_id=4905681358&catalog[]=2050&size_ids[]=207&size_ids[]=208&size_ids[]=209&page=1&brand_ids[]=53&brand_ids[]=14&brand_ids[]=94&brand_ids[]=304&brand_ids[]=88&brand_ids[]=4273&brand_ids[]=2319&brand_ids[]=255&brand_ids[]=73306&brand_ids[]=214&brand_ids[]=161&brand_ids[]=2929&brand_ids[]=139&status_ids[]=6&status_ids[]=1&status_ids[]=2&price_to=50.00&currency=EUR&order=newest_first"
+        "url": "https://www.vinted.it/catalog?search_text=sneakers+nike+adidas+jordan&price_to=50.00&currency=EUR&order=newest_first"
     },
     {
-        "name": "Streetwear Generico (Filtro Taglie)", 
-        "url": "https://www.vinted.it/catalog?search_id=4908212226&catalog[]=1452&page=1&brand_ids[]=53&brand_ids[]=14&brand_ids[]=2703&brand_ids[]=1775&brand_ids[]=5977&brand_ids[]=370427&size_ids[]=784&size_ids[]=786&price_to=50.00&currency=EUR&order=newest_first"
+        "name": "Streetwear Generico", 
+        "url": "https://www.vinted.it/catalog?search_text=felpa+carhartt+stussy+supreme&price_to=50.00&currency=EUR&order=newest_first"
     }
 ]
 
@@ -338,7 +338,6 @@ def scrape_and_check():
                 parts = item_url.split('/')[-1].split('?')[0].split('-')
                 title = " ".join(parts[1:]).title() if len(parts) > 1 else "Articolo Vinted"
 
-                # LOG VISIBILE PER OGNI ARTICOLO TROVATO
                 print(f"👉 [ESAMINO] {title[:35]} | Prezzo Vinted: {price}€", flush=True)
 
                 eval_res = evaluate_deal_with_groq(title, price, model_name)
