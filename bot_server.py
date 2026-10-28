@@ -7,7 +7,6 @@ from flask import Flask, request, jsonify
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import cloudscraper
-import requests
 
 app = Flask(__name__)
 
@@ -39,58 +38,10 @@ USER_AGENTS = [
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 ]
 
-# --- GESTORE PROXY ROTATIVI ILLIMITATI ---
-def get_free_proxies():
-    """Scarica una lista aggiornata di proxy HTTP/SOCKS4/SOCKS5 gratuiti"""
-    proxy_urls = [
-        "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http&timeout=5000&country=all&ssl=all&anonymity=all",
-        "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt"
-    ]
-    proxies = []
-    for url in proxy_urls:
-        try:
-            res = requests.get(url, timeout=5)
-            if res.status_code == 200:
-                lines = res.text.strip().split("\n")
-                for line in lines:
-                    p = line.strip()
-                    if p and ":" in p:
-                        proxies.append(f"http://{p}")
-        except Exception:
-            pass
-    random.shuffle(proxies)
-    return proxies
-
-cached_proxies = []
-
-def get_working_scraper():
-    global cached_proxies
-    if not cached_proxies:
-        print("   [PROXY] Aggiornamento lista proxy rotativi gratuiti...", flush=True)
-        cached_proxies = get_free_proxies()
-
-    scraper = cloudscraper.create_scraper(
+def get_scraper():
+    return cloudscraper.create_scraper(
         browser={'browser': 'chrome', 'platform': 'windows', 'desktop': True}
     )
-
-    # Tenta al massimo 5 proxy per trovare un IP funzionante
-    for _ in range(min(5, len(cached_proxies))):
-        proxy = cached_proxies.pop(0) if cached_proxies else None
-        if not proxy:
-            break
-        scraper.proxies = {"http": proxy, "https": proxy}
-        try:
-            # Test rapido di connessione
-            t_res = scraper.get("https://httpbin.org/ip", timeout=3)
-            if t_res.status_code == 200:
-                print(f"   [PROXY OK] Utilizzo IP: {t_res.json().get('origin')}", flush=True)
-                return scraper
-        except Exception:
-            continue
-
-    # Fallback se i proxy veloci falliscono
-    scraper.proxies = {}
-    return scraper
 
 # --- GOOGLE SHEETS INTEGRATION ---
 def get_sheet():
@@ -158,6 +109,7 @@ def save_pending(data):
 
 # --- TELEGRAM ---
 def send_telegram_alert_with_buttons(title, price, est_price, profit, item_url, item_id):
+    scraper = get_scraper()
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     msg = (
         f"🚨 <b>NUOVA OPPORTUNITÀ RESELL!</b>\n\n"
@@ -183,7 +135,7 @@ def send_telegram_alert_with_buttons(title, price, est_price, profit, item_url, 
         "reply_markup": json.dumps(reply_markup)
     }
     try:
-        requests.post(url, data=payload, timeout=5)
+        scraper.post(url, data=payload, timeout=5)
         pending = load_pending()
         pending[str(item_id)] = {"title": title, "vinted_price": price, "est_resell": est_price, "url": item_url}
         save_pending(pending)
@@ -191,10 +143,11 @@ def send_telegram_alert_with_buttons(title, price, est_price, profit, item_url, 
         print(f"Errore invio Telegram: {e}", flush=True)
 
 def send_telegram_message(chat_id, text):
+    scraper = get_scraper()
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {"chat_id": chat_id, "text": text, "parse_mode": "HTML"}
     try:
-        requests.post(url, data=payload, timeout=5)
+        scraper.post(url, data=payload, timeout=5)
     except Exception as e:
         print(f"Errore invio messaggio semplice: {e}", flush=True)
 
@@ -203,6 +156,7 @@ def evaluate_deal_with_groq(title, price):
     if not GROQ_API_KEY:
         return {"is_deal": False, "estimated_resell_price": 0, "estimated_profit": 0}
         
+    scraper = get_scraper()
     url = "https://api.groq.com/openai/v1/chat/completions"
     headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
     prompt = f"""
@@ -224,7 +178,7 @@ def evaluate_deal_with_groq(title, price):
     }
 
     try:
-        res = requests.post(url, json=payload, headers=headers, timeout=10)
+        res = scraper.post(url, json=payload, headers=headers, timeout=10)
         if res.status_code == 200:
             content = res.json()["choices"][0]["message"]["content"]
             data = json.loads(content)
@@ -239,10 +193,10 @@ def evaluate_deal_with_groq(title, price):
         print(f"Errore chiamata Groq: {e}", flush=True)
     return {"is_deal": False, "estimated_resell_price": 0, "estimated_profit": 0}
 
-# --- SCRAPING CON ROTAZIONE PROXY ---
+# --- SCRAPING DIRETTO PULITO ---
 def scrape_and_check():
     sent_items = load_sent_items()
-    scraper = get_working_scraper()
+    scraper = get_scraper()
 
     for index, target in enumerate(TARGET_QUERIES, 1):
         print(f"--- Controllo {target['name']} ({index}/{len(TARGET_QUERIES)}) ---", flush=True)
@@ -258,15 +212,9 @@ def scrape_and_check():
             
             res = scraper.get(api_url, headers=headers, timeout=10)
 
-            # Se restituisce ancora 403, cambiamo subito proxy
-            if res.status_code == 403:
-                print("   └─ [403 RILEVATO] Cambio immediato IP del proxy...", flush=True)
-                scraper = get_working_scraper()
-                res = scraper.get(api_url, headers=headers, timeout=10)
-
             if res.status_code != 200:
                 print(f"   └─ Errore API Vinted (Status {res.status_code})", flush=True)
-                time.sleep(2)
+                time.sleep(3)
                 continue
                 
             data = res.json()
@@ -315,7 +263,7 @@ def scrape_and_check():
             print(f"Errore scraping {target['name']}: {e}", flush=True)
 
 def controlla_vinted_periodicamente():
-    print(">>> SCRAPER PROXY ROTATIVO AVVIATO SU RENDER (H24) <<<", flush=True)
+    print(">>> SCRAPER DIRETTO AVVIATO SU RENDER (H24) <<<", flush=True)
     while True:
         try:
             scrape_and_check()
@@ -330,7 +278,7 @@ thread_scraper.start()
 # --- MESSAGGIO AVVIO ---
 try:
     if TELEGRAM_TOKEN and TELEGRAM_CHAT_ID:
-        send_telegram_message(TELEGRAM_CHAT_ID, "🟢 <b>Bot Vinted (Proxy Rotativi) avviato!</b>\nIP dinamici attivi per superare il blocco 403.")
+        send_telegram_message(TELEGRAM_CHAT_ID, "🟢 <b>Bot Vinted avviato con successo!</b>\nScansione attiva.")
 except Exception as e:
     print(f"Errore invio test Telegram: {e}", flush=True)
 
@@ -339,7 +287,7 @@ user_states = {}
 
 @app.route('/', methods=['GET', 'HEAD'])
 def index():
-    return "Bot Vinted Proxy attivo h24 su Render!", 200
+    return "Bot Vinted attivo h24 su Render!", 200
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
@@ -354,7 +302,8 @@ def webhook():
         chat_id = cb["message"]["chat"]["id"]
         message_id = cb["message"]["message_id"]
 
-        requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/answerCallbackQuery", json={"callback_query_id": cb_id})
+        scraper = get_scraper()
+        scraper.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/answerCallbackQuery", json={"callback_query_id": cb_id})
 
         if cb_data.startswith("buy_"):
             item_id = cb_data.replace("buy_", "")
@@ -365,7 +314,7 @@ def webhook():
         elif cb_data.startswith("save_"):
             send_telegram_message(chat_id, "⭐ <b>Articolo salvato nei preferiti!</b>")
         elif cb_data.startswith("dismiss_"):
-            requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/deleteMessage", json={"chat_id": chat_id, "message_id": message_id})
+            scraper.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/deleteMessage", json={"chat_id": chat_id, "message_id": message_id})
         return "OK", 200
 
     if "message" in data and "text" in data["message"]:
