@@ -1,6 +1,7 @@
 Flask
 gspread
 oauth2client
-requests
+requests[socks]
+PySocks
 beautifulsoup4
 cloudscraper
