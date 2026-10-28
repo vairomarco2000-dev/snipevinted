@@ -16,6 +16,7 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 GOOGLE_CREDENTIALS_JSON = os.environ.get("GOOGLE_CREDENTIALS_JSON")
 SHEET_NAME = os.environ.get("SHEET_NAME", "Vinted_Resell")
+VINTED_COOKIE = os.environ.get("VINTED_COOKIE", "")
 
 SENT_ITEMS_FILE = "sent_items.json"
 PENDING_PURCHASES_FILE = "pending_purchases.json"
@@ -102,7 +103,7 @@ def load_pending():
 
 def save_pending(data):
     try:
-        with open(PENDING_PURCHASES_FILE, "w") as f:
+        with open(PENDING_PURCHASES_FILE, "r") as f:
             json.dump(data, f)
     except Exception as e:
         print(f"Errore salvataggio pending: {e}", flush=True)
@@ -193,7 +194,7 @@ def evaluate_deal_with_groq(title, price):
         print(f"Errore chiamata Groq: {e}", flush=True)
     return {"is_deal": False, "estimated_resell_price": 0, "estimated_profit": 0}
 
-# --- SCRAPING DIRETTO PULITO ---
+# --- SCRAPING CON INIEZIONE COOKIE ---
 def scrape_and_check():
     sent_items = load_sent_items()
     scraper = get_scraper()
@@ -207,7 +208,8 @@ def scrape_and_check():
                 "User-Agent": random.choice(USER_AGENTS),
                 "Accept": "application/json, text/plain, */*",
                 "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7",
-                "Referer": "https://www.vinted.it/"
+                "Referer": "https://www.vinted.it/",
+                "Cookie": f"_vinted_fr_session={VINTED_COOKIE}" if VINTED_COOKIE else ""
             }
             
             res = scraper.get(api_url, headers=headers, timeout=10)
@@ -263,7 +265,7 @@ def scrape_and_check():
             print(f"Errore scraping {target['name']}: {e}", flush=True)
 
 def controlla_vinted_periodicamente():
-    print(">>> SCRAPER DIRETTO AVVIATO SU RENDER (H24) <<<", flush=True)
+    print(">>> SCRAPER CON COOKIE AUTENTICATO AVVIATO SU RENDER (H24) <<<", flush=True)
     while True:
         try:
             scrape_and_check()
@@ -278,7 +280,7 @@ thread_scraper.start()
 # --- MESSAGGIO AVVIO ---
 try:
     if TELEGRAM_TOKEN and TELEGRAM_CHAT_ID:
-        send_telegram_message(TELEGRAM_CHAT_ID, "🟢 <b>Bot Vinted avviato con successo!</b>\nScansione attiva.")
+        send_telegram_message(TELEGRAM_CHAT_ID, "🟢 <b>Bot Vinted avviato!</b>\nVerifica sessione in corso...")
 except Exception as e:
     print(f"Errore invio test Telegram: {e}", flush=True)
 
