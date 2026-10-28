@@ -16,7 +16,7 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 GOOGLE_CREDENTIALS_JSON = os.environ.get("GOOGLE_CREDENTIALS_JSON")
 SHEET_NAME = os.environ.get("SHEET_NAME", "Vinted_Resell")
-VINTED_COOKIE = os.environ.get("VINTED_COOKIE", "")
+VINTED_COOKIE = os.environ.get("VINTED_COOKIE", "").strip()
 
 SENT_ITEMS_FILE = "sent_items.json"
 PENDING_PURCHASES_FILE = "pending_purchases.json"
@@ -33,16 +33,32 @@ TARGET_QUERIES = [
     {"name": "Streetwear Generico", "query": "felpa carhartt stussy supreme", "price_to": 50}
 ]
 
-USER_AGENTS = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-]
+USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+
+def build_headers():
+    # Formattazione corretta del Cookie header
+    cookie_str = VINTED_COOKIE
+    if cookie_str and not cookie_str.startswith("_vinted_fr_session="):
+        cookie_str = f"_vinted_fr_session={cookie_str}"
+
+    return {
+        "User-Agent": USER_AGENT,
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Referer": "https://www.vinted.it/catalog",
+        "Origin": "https://www.vinted.it",
+        "Connection": "keep-alive",
+        "Sec-Fetch-Dest": "empty",
+        "Sec-Fetch-Mode": "cors",
+        "Sec-Fetch-Site": "same-origin",
+        "Cookie": cookie_str
+    }
 
 def get_scraper():
-    return cloudscraper.create_scraper(
+    scraper = cloudscraper.create_scraper(
         browser={'browser': 'chrome', 'platform': 'windows', 'desktop': True}
     )
+    return scraper
 
 # --- GOOGLE SHEETS INTEGRATION ---
 def get_sheet():
@@ -103,7 +119,7 @@ def load_pending():
 
 def save_pending(data):
     try:
-        with open(PENDING_PURCHASES_FILE, "r") as f:
+        with open(PENDING_PURCHASES_FILE, "w") as f:
             json.dump(data, f)
     except Exception as e:
         print(f"Errore salvataggio pending: {e}", flush=True)
@@ -194,25 +210,28 @@ def evaluate_deal_with_groq(title, price):
         print(f"Errore chiamata Groq: {e}", flush=True)
     return {"is_deal": False, "estimated_resell_price": 0, "estimated_profit": 0}
 
-# --- SCRAPING CON INIEZIONE COOKIE ---
+# --- SCRAPING CON VERIFICA SESSIONE ---
 def scrape_and_check():
     sent_items = load_sent_items()
     scraper = get_scraper()
+    headers = build_headers()
+
+    # Test preliminare dell'utente per attivare la sessione
+    try:
+        user_check = scraper.get("https://www.vinted.it/api/v2/users/current", headers=headers, timeout=10)
+        if user_check.status_code == 200:
+            print("   [SESSION OK] Autenticazione sessione Vinted riuscita!", flush=True)
+        else:
+            print(f"   [SESSION WARN] Status utente: {user_check.status_code} (Procedo comunque)", flush=True)
+    except Exception as e:
+        print(f"   [SESSION ERR] {e}", flush=True)
 
     for index, target in enumerate(TARGET_QUERIES, 1):
         print(f"--- Controllo {target['name']} ({index}/{len(TARGET_QUERIES)}) ---", flush=True)
         try:
             api_url = f"https://www.vinted.it/api/v2/catalog/items?search_text={target['query']}&price_to={target['price_to']}&currency=EUR&order=newest_first"
             
-            headers = {
-                "User-Agent": random.choice(USER_AGENTS),
-                "Accept": "application/json, text/plain, */*",
-                "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7",
-                "Referer": "https://www.vinted.it/",
-                "Cookie": f"_vinted_fr_session={VINTED_COOKIE}" if VINTED_COOKIE else ""
-            }
-            
-            res = scraper.get(api_url, headers=headers, timeout=10)
+            res = scraper.get(api_url, headers=headers, timeout=12)
 
             if res.status_code != 200:
                 print(f"   └─ Errore API Vinted (Status {res.status_code})", flush=True)
@@ -280,7 +299,7 @@ thread_scraper.start()
 # --- MESSAGGIO AVVIO ---
 try:
     if TELEGRAM_TOKEN and TELEGRAM_CHAT_ID:
-        send_telegram_message(TELEGRAM_CHAT_ID, "🟢 <b>Bot Vinted avviato!</b>\nVerifica sessione in corso...")
+        send_telegram_message(TELEGRAM_CHAT_ID, "🟢 <b>Bot Vinted avviato!</b>\nSessione in convalida...")
 except Exception as e:
     print(f"Errore invio test Telegram: {e}", flush=True)
 
