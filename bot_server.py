@@ -199,6 +199,7 @@ def get_dynamic_model():
 
 def evaluate_deal_with_groq(title, price, model_name):
     if not GROQ_API_KEY:
+        print("[GROQ ERROR] API Key mancante nelle variabili d'ambiente.", flush=True)
         return {"is_deal": False, "estimated_resell_price": 0, "estimated_profit": 0}
         
     url = "https://api.groq.com/openai/v1/chat/completions"
@@ -235,7 +236,10 @@ def evaluate_deal_with_groq(title, price, model_name):
                 estimated_resell = float(data.get("estimated_resell_price", 0))
                 
                 net_profit = estimated_resell - price - 5.0
-                is_deal = net_profit >= 15.0
+                is_deal = net_profit >= 10.0  # SOGLIA RILASSATA A 10€ NETTI
+                
+                status_str = "APPROVATO (Notifica Inviata!)" if is_deal else "SCARTATO (Margine < 10€)"
+                print(f"[GROQ LOG] {title[:30]}... | Prezzo: {price}€ | Est: {estimated_resell}€ | Profitto Netto: {round(net_profit, 2)}€ -> {status_str}", flush=True)
                 
                 return {
                     "is_deal": is_deal,
@@ -249,6 +253,7 @@ def evaluate_deal_with_groq(title, price, model_name):
                 else:
                     break
             else:
+                print(f"[GROQ ERROR] Status code {res.status_code}: {res.text}", flush=True)
                 break
         except Exception as e:
             print(f"Errore chiamata Groq: {e}", flush=True)
@@ -286,7 +291,8 @@ def scrape_and_check():
                     seen_urls.add(href)
                     unique_items.append(link)
             
-            for i, link_tag in enumerate(unique_items[:5], 1):
+            # ANALISI AUMENTATA AI PRIMI 10 OGGETTI
+            for i, link_tag in enumerate(unique_items[:10], 1):
                 item_url = link_tag.get("href")
                 if not item_url.startswith("http"):
                     item_url = "https://www.vinted.it" + item_url
@@ -337,7 +343,7 @@ def scrape_and_check():
                     save_sent_item(item_id)
                     sent_items.add(str(item_id))
                 
-                time.sleep(5)
+                time.sleep(3)
                 
         except Exception as e:
             print(f"Errore scraping {target['name']}: {e}", flush=True)
