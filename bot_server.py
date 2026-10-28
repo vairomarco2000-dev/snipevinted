@@ -236,10 +236,10 @@ def evaluate_deal_with_groq(title, price, model_name):
                 estimated_resell = float(data.get("estimated_resell_price", 0))
                 
                 net_profit = estimated_resell - price - 5.0
-                is_deal = net_profit >= 10.0  # SOGLIA RILASSATA A 10€ NETTI
+                is_deal = net_profit >= 10.0
                 
                 status_str = "APPROVATO (Notifica Inviata!)" if is_deal else "SCARTATO (Margine < 10€)"
-                print(f"[GROQ LOG] {title[:30]}... | Prezzo: {price}€ | Est: {estimated_resell}€ | Profitto Netto: {round(net_profit, 2)}€ -> {status_str}", flush=True)
+                print(f"   └─ [GROQ] Prezzo: {price}€ | Est: {estimated_resell}€ | Profitto: {round(net_profit, 2)}€ -> {status_str}", flush=True)
                 
                 return {
                     "is_deal": is_deal,
@@ -253,7 +253,7 @@ def evaluate_deal_with_groq(title, price, model_name):
                 else:
                     break
             else:
-                print(f"[GROQ ERROR] Status code {res.status_code}: {res.text}", flush=True)
+                print(f"   └─ [GROQ ERROR] Status code {res.status_code}: {res.text}", flush=True)
                 break
         except Exception as e:
             print(f"Errore chiamata Groq: {e}", flush=True)
@@ -278,6 +278,7 @@ def scrape_and_check():
         try:
             res = session.get(target['url'], timeout=10)
             if res.status_code != 200:
+                print(f"   └─ Errore risposta Vinted (Status {res.status_code})", flush=True)
                 continue
             
             soup = BeautifulSoup(res.text, "html.parser")
@@ -291,7 +292,10 @@ def scrape_and_check():
                     seen_urls.add(href)
                     unique_items.append(link)
             
-            # ANALISI AUMENTATA AI PRIMI 10 OGGETTI
+            if not unique_items:
+                print("   └─ Nessun articolo trovato in questa ricerca.", flush=True)
+                continue
+
             for i, link_tag in enumerate(unique_items[:10], 1):
                 item_url = link_tag.get("href")
                 if not item_url.startswith("http"):
@@ -333,6 +337,9 @@ def scrape_and_check():
                 
                 parts = item_url.split('/')[-1].split('?')[0].split('-')
                 title = " ".join(parts[1:]).title() if len(parts) > 1 else "Articolo Vinted"
+
+                # LOG VISIBILE PER OGNI ARTICOLO TROVATO
+                print(f"👉 [ESAMINO] {title[:35]} | Prezzo Vinted: {price}€", flush=True)
 
                 eval_res = evaluate_deal_with_groq(title, price, model_name)
                 
