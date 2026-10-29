@@ -65,7 +65,7 @@ def evaluate_deal_with_groq(title, price):
         print(f"Errore Groq: {e}")
     return {"is_deal": False, "estimated_resell_price": 0, "estimated_profit": 0}
 
-def send_telegram_alert(title, price, est_price, profit, item_url, item_id):
+def send_telegram_alt(title, price, est_price, profit, item_url, item_id):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     msg = (
         f"🚨 <b>NUOVA OPPORTUNITÀ RESELL!</b>\n\n"
@@ -102,7 +102,7 @@ def run_scan():
         browser={'browser': 'chrome', 'platform': 'windows', 'desktop': True}
     )
 
-    print(">>> AVVIO SCANSIONE VINTED VIA GITHUB ACTIONS (HTML PARSER) <<<")
+    print(">>> AVVIO SCANSIONE VINTED (HTML DIRECT PARSER) <<<")
 
     for target in TARGET_QUERIES:
         print(f"--- Scansione: {target['name']} ---")
@@ -123,62 +123,75 @@ def run_scan():
                 print(f"  └─ Errore caricamento pagina (Status {res.status_code})")
                 continue
 
-            # Cerchiamo lo stato precaricato in JSON dentro la pagina HTML
-            match = re.search(r'window\.__PRELOADED_STATE__\s*=\s*({.+?});</script>', res.text)
+            soup = BeautifulSoup(res.text, 'html.parser')
             items = []
-            
-            if match:
-                try:
-                    state_json = json.loads(match.group(1))
-                    # Navighiamo nella struttura dello state per trovare gli oggetti del catalogo
-                    catalog_data = state_json.get("catalog", {}).get("items", {})
-                    if isinstance(catalog_data, dict):
-                        items = catalog_data.get("all", [])
-                    elif isinstance(catalog_data, list):
-                        items = catalog_data
-                except Exception as e:
-                    print(f"  └─ Errore parsing dello state JSON: {e}")
 
-            # Fallback con BeautifulSoup se il match regex non trova il blocco esatto
-            if not items:
-                soup = BeautifulSoup(res.text, 'html.parser')
-                # Cerchiamo i tag script che contengono i dati degli item o elementi box articolo
-                for script in soup.find_all('script'):
-                    if script.string and '"items":[' in script.string:
+            # Estraiamo direttamente i tag dei prodotti dal DOM HTML di Vinted
+            # Cerca tutti i link che portano alle schede articolo
+            for a_tag in soup.find_all('a', href=re.compile(r'/items/\d+')):
+                href = a_tag.get('href', '')
+                if not href.startswith('http'):
+                    item_url = f"https://www.vinted.it{href}"
+                else:
+                    item_url = href
+
+                # Estrai l'ID numerico dell'articolo dall'URL
+                id_match = re.search(r'/items/(\d+)', item_url)
+                if not id_match:
+                    continue
+                item_id = id_match.group(1)
+
+                # Cerca il titolo e il prezzo all'interno della card o dai tag img/alt
+                title = "Articolo Vinted"
+                img_tag = a_tag.find('img')
+                if img_tag and img_tag.get('alt'):
+                    title = img_tag.get('alt')
+                else:
+                    # Fallback sul testo del link o attributi vicini
+                    title_elem = a_tag.find(['h3', 'span', 'p'])
+                    if title_elem and title_elem.text.strip():
+                        title = title_elem.text.strip()
+
+                # Cerca il prezzo nei dintorni del link (es. testo contenente '€')
+                price = 0.0
+                parent = a_tag.parent
+                for _ in range(3): # sale di qualche livello nel DOM per trovare il blocco prezzo
+                    if not parent:
+                        break
+                    text_content = parent.get_text()
+                    price_match = re.search(r'([\d,\.]+)\s*€', text_content)
+                    if price_match:
+                        price_str = price_match.group(1).replace(',', '.')
                         try:
-                            # Tentativo di estrazione array items tramite regex generica nel blocco script
-                            sub_match = re.search(r'"items":\s*(\[.+?\]),\s*"pagination"', script.string)
-                            if sub_match:
-                                items = json.loads(sub_match.group(1))
-                                break
+                            price = float(price_str)
+                            break
                         except:
                             pass
+                    parent = parent.parent
 
-            print(f"  └─ Trovati {len(items)} articoli")
+                # Evita duplicati nella lista
+                if not any(it['id'] == item_id for it in items):
+                    if price > 0 and price <= target['price_to']:
+                        items.append({
+                            "id": item_id,
+                            "title": title,
+                            "url": item_url,
+                            "price": price
+                        })
+
+            print(f"  └─ Trovati {len(items)} articoli validi")
 
             for item in items[:5]:
-                item_id = str(item.get("id"))
-                title = item.get("title", "Articolo Vinted")
-                item_url = item.get("url", "")
-                
-                # Estrazione sicura del prezzo
-                price_data = item.get("price", {})
-                if isinstance(price_data, dict):
-                    price = float(price_data.get("amount", 0))
-                else:
-                    try:
-                        price = float(price_data)
-                    except:
-                        price = 0
-
-                if price <= 0:
-                    continue
+                item_id = item["id"]
+                title = item["title"]
+                item_url = item["url"]
+                price = item["price"]
 
                 eval_res = evaluate_deal_with_groq(title, price)
                 if eval_res.get("is_deal"):
                     profit = eval_res.get("estimated_profit")
                     est_price = eval_res.get("estimated_resell_price")
-                    send_telegram_alert(title, price, est_price, profit, item_url, item_id)
+                    send_telegram_alt(title, price, est_price, profit, item_url, item_id)
 
                 time.sleep(1)
         except Exception as e:
