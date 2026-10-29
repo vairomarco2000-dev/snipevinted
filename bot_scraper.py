@@ -13,7 +13,7 @@ TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 RENDER_SERVER_URL = os.environ.get("RENDER_SERVER_URL", "").rstrip('/')
 
-# Inizializzazione del client ufficiale Groq (niente più URL HTTP manuali)
+# Inizializzazione del client ufficiale Groq
 groq_client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 
 TARGET_QUERIES = [
@@ -44,28 +44,42 @@ def evaluate_deal_with_groq(title, price):
     {{"estimated_resell_price": 0}}
     """
 
-    try:
-        # Usiamo il client ufficiale con fallback automatico sui modelli attivi
-        completion = groq_client.chat.completions.create(
-            model="llama-3.1-8b-instant",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.1,
-            response_format={"type": "json_object"}
-        )
-        
-        content = completion.choices[0].message.content
-        data = json.loads(content)
-        estimated_resell = float(data.get("estimated_resell_price", 0))
-        net_profit = estimated_resell - price - 5.0
-        is_deal = net_profit >= 10.0
-        return {
-            "is_deal": is_deal,
-            "estimated_resell_price": estimated_resell,
-            "estimated_profit": round(net_profit, 2)
-        }
-    except Exception as e:
-        print(f"        [Errore Groq SDK]: {e}")
-    
+    # Lista modelli per fallback automatico in ordine di priorità
+    candidate_models = [
+        "llama-3.3-70b-versatile",
+        "llama3-8b-8192",
+        "mixtral-8x7b-32768",
+        "gemma2-9b-it"
+    ]
+
+    for model_name in candidate_models:
+        try:
+            completion = groq_client.chat.completions.create(
+                model=model_name,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.1,
+                response_format={"type": "json_object"}
+            )
+            
+            content = completion.choices[0].message.content
+            data = json.loads(content)
+            estimated_resell = float(data.get("estimated_resell_price", 0))
+            net_profit = estimated_resell - price - 5.0
+            is_deal = net_profit >= 10.0
+            return {
+                "is_deal": is_deal,
+                "estimated_resell_price": estimated_resell,
+                "estimated_profit": round(net_profit, 2)
+            }
+        except Exception as e:
+            err_msg = str(e)
+            if "model_not_found" in err_msg or "404" in err_msg or "decommissioned" in err_msg:
+                # Tenta il modello successivo nella lista
+                continue
+            else:
+                print(f"        [Errore Groq con {model_name}]: {e}")
+                break
+
     return {"is_deal": False, "estimated_resell_price": 0, "estimated_profit": 0}
 
 def send_telegram_alt(title, price, est_price, profit, item_url, item_id):
@@ -105,7 +119,7 @@ def run_scan():
         browser={'browser': 'chrome', 'platform': 'windows', 'desktop': True}
     )
 
-    print(">>> AVVIO SCANSIONE VINTED (SDK UFFICIALE GROQ) <<<")
+    print(">>> AVVIO SCANSIONE VINTED (SDK GROQ CON FALLBACK AUTOMATICO) <<<")
 
     for target in TARGET_QUERIES:
         print(f"--- Scansione: {target['name']} ---")
