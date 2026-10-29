@@ -147,4 +147,63 @@ def run_scan():
                 if slug_title and len(slug_title) > 2:
                     title = slug_title.capitalize()
 
-                img_
+                img_tag = a_tag.find('img')
+                if (not title or title.lower() == "item") and img_tag and img_tag.get('alt'):
+                    title = img_tag.get('alt').strip()
+
+                if not title:
+                    title = target['query'].capitalize()
+
+                price = 0.0
+                parent = a_tag.parent
+                for _ in range(4):
+                    if not parent:
+                        break
+                    text_content = parent.get_text()
+                    price_match = re.search(r'([\d,\.]+)\s*€', text_content)
+                    if price_match:
+                        price_str = price_match.group(1).replace(',', '.')
+                        try:
+                            price = float(price_str)
+                            break
+                        except:
+                            pass
+                    parent = parent.parent
+
+                if not any(it['id'] == item_id for it in items):
+                    if price > 0 and price <= target['price_to']:
+                        items.append({
+                            "id": item_id,
+                            "title": title,
+                            "url": item_url,
+                            "price": price
+                        })
+
+            print(f"  └─ Trovati {len(items)} articoli validi. Analizzo i primi 5:")
+
+            for item in items[:5]:
+                item_id = item["id"]
+                title = item["title"]
+                item_url = item["url"]
+                price = item["price"]
+
+                print(f"     👉 Analizzo: {title[:40]}... | Prezzo: {price}€")
+
+                eval_res = evaluate_deal_with_groq(title, price)
+                est_val = eval_res.get('estimated_resell_price', 0)
+                profit = eval_res.get('estimated_profit', 0)
+                
+                print(f"        Groq -> Valore stimato: {est_val}€ | Profitto netto: {profit}€")
+
+                if eval_res.get("is_deal"):
+                    print(f"        🔥 AFFARE TROVATO! Invio notifica Telegram...")
+                    send_telegram_alt(title, price, est_val, profit, item_url, item_id)
+                else:
+                    print(f"        ❌ Scartato (margine inferiore a 10€ o non conveniente)")
+
+                time.sleep(1)
+        except Exception as e:
+            print(f"  └─ Eccezione durante la scansione: {e}")
+
+if __name__ == "__main__":
+    run_scan()
