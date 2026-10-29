@@ -102,7 +102,7 @@ def run_scan():
         browser={'browser': 'chrome', 'platform': 'windows', 'desktop': True}
     )
 
-    print(">>> AVVIO SCANSIONE VINTED (HTML DIRECT PARSER) <<<")
+    print(">>> AVVIO SCANSIONE VINTED (HTML DIRECT PARSER + DEBUG) <<<")
 
     for target in TARGET_QUERIES:
         print(f"--- Scansione: {target['name']} ---")
@@ -126,8 +126,6 @@ def run_scan():
             soup = BeautifulSoup(res.text, 'html.parser')
             items = []
 
-            # Estraiamo direttamente i tag dei prodotti dal DOM HTML di Vinted
-            # Cerca tutti i link che portano alle schede articolo
             for a_tag in soup.find_all('a', href=re.compile(r'/items/\d+')):
                 href = a_tag.get('href', '')
                 if not href.startswith('http'):
@@ -135,27 +133,23 @@ def run_scan():
                 else:
                     item_url = href
 
-                # Estrai l'ID numerico dell'articolo dall'URL
                 id_match = re.search(r'/items/(\d+)', item_url)
                 if not id_match:
                     continue
                 item_id = id_match.group(1)
 
-                # Cerca il titolo e il prezzo all'interno della card o dai tag img/alt
                 title = "Articolo Vinted"
                 img_tag = a_tag.find('img')
                 if img_tag and img_tag.get('alt'):
                     title = img_tag.get('alt')
                 else:
-                    # Fallback sul testo del link o attributi vicini
                     title_elem = a_tag.find(['h3', 'span', 'p'])
                     if title_elem and title_elem.text.strip():
                         title = title_elem.text.strip()
 
-                # Cerca il prezzo nei dintorni del link (es. testo contenente '€')
                 price = 0.0
                 parent = a_tag.parent
-                for _ in range(3): # sale di qualche livello nel DOM per trovare il blocco prezzo
+                for _ in range(3):
                     if not parent:
                         break
                     text_content = parent.get_text()
@@ -169,7 +163,6 @@ def run_scan():
                             pass
                     parent = parent.parent
 
-                # Evita duplicati nella lista
                 if not any(it['id'] == item_id for it in items):
                     if price > 0 and price <= target['price_to']:
                         items.append({
@@ -179,7 +172,7 @@ def run_scan():
                             "price": price
                         })
 
-            print(f"  └─ Trovati {len(items)} articoli validi")
+            print(f"  └─ Trovati {len(items)} articoli validi. Analizzo i primi 5:")
 
             for item in items[:5]:
                 item_id = item["id"]
@@ -187,11 +180,19 @@ def run_scan():
                 item_url = item["url"]
                 price = item["price"]
 
+                print(f"     👉 Analizzo: {title[:40]}... | Prezzo: {price}€")
+
                 eval_res = evaluate_deal_with_groq(title, price)
+                est_val = eval_res.get('estimated_resell_price', 0)
+                profit = eval_res.get('estimated_profit', 0)
+                
+                print(f"        Groq -> Valore stimato: {est_val}€ | Profitto netto: {profit}€")
+
                 if eval_res.get("is_deal"):
-                    profit = eval_res.get("estimated_profit")
-                    est_price = eval_res.get("estimated_resell_price")
-                    send_telegram_alt(title, price, est_price, profit, item_url, item_id)
+                    print(f"        🔥 AFFARE TROVATO! Invio notifica Telegram...")
+                    send_telegram_alt(title, price, est_val, profit, item_url, item_id)
+                else:
+                    print(f"        ❌ Scartato (margine inferiore a 10€ o non conveniente)")
 
                 time.sleep(1)
         except Exception as e:
