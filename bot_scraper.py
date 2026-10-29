@@ -1,6 +1,8 @@
 import os
 import json
 import time
+import re
+from bs4 import BeautifulSoup
 import requests
 import cloudscraper
 
@@ -100,68 +102,74 @@ def run_scan():
         browser={'browser': 'chrome', 'platform': 'windows', 'desktop': True}
     )
 
-    print(">>> AVVIO SCANSIONE VINTED VIA GITHUB ACTIONS <<<")
+    print(">>> AVVIO SCANSIONE VINTED VIA GITHUB ACTIONS (HTML PARSER) <<<")
 
-    # STEP 1: Inizializzazione sessione sul dominio principale .fr (spesso usato come hub API stabile)
-    try:
-        print("Inizializzazione sessione globale su Vinted...")
-        init_headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-            "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7",
-            "Connection": "keep-alive"
-        }
-        init_res = scraper.get("https://www.vinted.fr", headers=init_headers, timeout=15)
-        if init_res.status_code == 200:
-            print("Sessione inizializzata con successo! Cookie acquisiti.")
-        else:
-            print(f"Attenzione: Status homepage {init_res.status_code}")
-    except Exception as e:
-        print(f"Errore inizializzazione sessione: {e}")
-
-    time.sleep(2)
-
-    # STEP 2: Esecuzione delle ricerche sull'endpoint API stabile
     for target in TARGET_QUERIES:
         print(f"--- Scansione: {target['name']} ---")
         try:
-            api_url = "https://www.vinted.fr/api/v2/catalog/items"
-            params = {
-                "search_text": target['query'],
-                "price_to": str(target['price_to']),
-                "currency": "EUR",
-                "order": "newest_first"
-            }
+            query_str = target['query'].replace(' ', '%20')
+            catalog_url = f"https://www.vinted.it/catalog?search_text={query_str}&price_to={target['price_to']}&order=newest_first"
             
             headers = {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-                "Accept": "application/json, text/plain, */*",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
                 "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7",
-                "Referer": "https://www.vinted.fr/",
-                "Origin": "https://www.vinted.fr",
-                "X-Requested-With": "XMLHttpRequest"
+                "Referer": "https://www.vinted.it/"
             }
             
-            res = scraper.get(api_url, params=params, headers=headers, timeout=10)
+            res = scraper.get(catalog_url, headers=headers, timeout=15)
 
             if res.status_code != 200:
-                print(f"  └─ Errore API Vinted (Status {res.status_code})")
+                print(f"  └─ Errore caricamento pagina (Status {res.status_code})")
                 continue
 
-            try:
-                data = res.json()
-            except Exception:
-                print("  └─ Errore di decodifica JSON")
-                continue
+            # Cerchiamo lo stato precaricato in JSON dentro la pagina HTML
+            match = re.search(r'window\.__PRELOADED_STATE__\s*=\s*({.+?});</script>', res.text)
+            items = []
+            
+            if match:
+                try:
+                    state_json = json.loads(match.group(1))
+                    # Navighiamo nella struttura dello state per trovare gli oggetti del catalogo
+                    catalog_data = state_json.get("catalog", {}).get("items", {})
+                    if isinstance(catalog_data, dict):
+                        items = catalog_data.get("all", [])
+                    elif isinstance(catalog_data, list):
+                        items = catalog_data
+                except Exception as e:
+                    print(f"  └─ Errore parsing dello state JSON: {e}")
 
-            items = data.get("items", [])
+            # Fallback con BeautifulSoup se il match regex non trova il blocco esatto
+            if not items:
+                soup = BeautifulSoup(res.text, 'html.parser')
+                # Cerchiamo i tag script che contengono i dati degli item o elementi box articolo
+                for script in soup.find_all('script'):
+                    if script.string and '"items":[' in script.string:
+                        try:
+                            # Tentativo di estrazione array items tramite regex generica nel blocco script
+                            sub_match = re.search(r'"items":\s*(\[.+?\]),\s*"pagination"', script.string)
+                            if sub_match:
+                                items = json.loads(sub_match.group(1))
+                                break
+                        except:
+                            pass
+
             print(f"  └─ Trovati {len(items)} articoli")
 
             for item in items[:5]:
                 item_id = str(item.get("id"))
                 title = item.get("title", "Articolo Vinted")
                 item_url = item.get("url", "")
-                price = float(item.get("price", {}).get("amount", 0))
+                
+                # Estrazione sicura del prezzo
+                price_data = item.get("price", {})
+                if isinstance(price_data, dict):
+                    price = float(price_data.get("amount", 0))
+                else:
+                    try:
+                        price = float(price_data)
+                    except:
+                        price = 0
 
                 if price <= 0:
                     continue
