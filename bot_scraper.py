@@ -11,7 +11,6 @@ from groq import Groq
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
-RENDER_SERVER_URL = os.environ.get("RENDER_SERVER_URL", "").rstrip('/')
 
 groq_client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 
@@ -25,6 +24,28 @@ TARGET_QUERIES = [
     {"name": "Maglie Calcio Anni 90/2000", "query": "maglia calcio vintage 90s", "price_to": 40},
     {"name": "Streetwear Raro / T-Shirt", "query": "stussy supreme vintage t shirt", "price_to": 45}
 ]
+
+SEEN_FILE = "seen_items.json"
+
+def load_seen_items():
+    """Carica la lista degli ID già notificati per evitare duplicati."""
+    if os.path.exists(SEEN_FILE):
+        try:
+            with open(SEEN_FILE, "r") as f:
+                return set(json.load(f))
+        except:
+            return set()
+    return set()
+
+def save_seen_items(seen_set):
+    """Salva la lista aggiornata degli ID per le prossime esecuzioni."""
+    try:
+        # Mantieni solo gli ultimi 1000 ID per non appesantire il file
+        recent_ids = list(seen_set)[-1000:]
+        with open(SEEN_FILE, "w") as f:
+            json.dump(recent_ids, f)
+    except Exception as e:
+        print(f"Errore salvataggio seen_items: {e}")
 
 def get_working_chat_models():
     """Filtra ed estrae solo i modelli generativi di Chat validi da Groq"""
@@ -98,7 +119,6 @@ def evaluate_deal_with_groq(title, price):
                 if num_match:
                     estimated_resell = float(num_match.group(1))
 
-            # Spese realistiche stimate (3.5€) e margine minimo di 8.0€
             net_profit = estimated_resell - price - 3.5
             is_deal = net_profit >= 8.0
             
@@ -147,11 +167,12 @@ def send_telegram_alt(title, price, est_price, profit, item_url, item_id):
         print(f"Errore invio Telegram: {e}")
 
 def run_scan():
+    seen_items = load_seen_items()
     scraper = cloudscraper.create_scraper(
         browser={'browser': 'chrome', 'platform': 'windows', 'desktop': True}
     )
 
-    print(">>> AVVIO SCANSIONE VINTED OPTIMIZED <<<")
+    print(">>> AVVIO SCANSIONE VINTED OPTIMIZED (ANTI-DUPLICATI) <<<")
 
     for target in TARGET_QUERIES:
         print(f"--- Scansione: {target['name']} ---")
@@ -183,11 +204,13 @@ def run_scan():
                 if not id_match:
                     continue
                 item_id = id_match.group(1)
-                slug_title = id_match.group(2).replace('-', ' ').strip()
 
-                title = ""
-                if slug_title and len(slug_title) > 2:
-                    title = slug_title.capitalize()
+                # FILTRO DUPLICATI: Se l'abbiamo già analizzato e notificato in passato, salta!
+                if item_id in seen_items:
+                    continue
+
+                slug_title = id_match.group(2).replace('-', ' ').strip()
+                title = slug_title.capitalize() if slug_title and len(slug_title) > 2 else ""
 
                 img_tag = a_tag.find('img')
                 if (not title or title.lower() == "item") and img_tag and img_tag.get('alt'):
@@ -221,7 +244,7 @@ def run_scan():
                             "price": price
                         })
 
-            print(f"  └─ Trovati {len(items)} articoli validi. Analizzo i primi 5:")
+            print(f"  └─ Trovati {len(items)} NUOVI articoli da analizzare. Analizzo i primi 5:")
 
             for item in items[:5]:
                 item_id = item["id"]
@@ -243,9 +266,15 @@ def run_scan():
                 else:
                     print(f"        ❌ Scartato (margine inferiore a 8€ o non conveniente)")
 
+                # Aggiungiamo l'ID ai "visti" sia che sia affare sia che sia scartato, per non rianalizzarlo
+                seen_items.add(item_id)
                 time.sleep(1)
+
         except Exception as e:
             print(f"  └─ Eccezione durante la scansione: {e}")
+
+    # Salva il registro aggiornato degli ID notificati/visti
+    save_seen_items(seen_items)
 
 if __name__ == "__main__":
     run_scan()
