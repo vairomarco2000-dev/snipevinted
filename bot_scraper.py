@@ -15,16 +15,15 @@ RENDER_SERVER_URL = os.environ.get("RENDER_SERVER_URL", "").rstrip('/')
 
 groq_client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 
+# Nicchie ad alto margine e ricerca lotti
 TARGET_QUERIES = [
-    {"name": "Streetwear - Weekend Offender", "query": "weekend offender", "price_to": 45},
-    {"name": "Workwear & Denim (Carhartt/Dickies)", "query": "carhartt dickies", "price_to": 45},
-    {"name": "Outdoor & Gorpcore (Patagonia/TNF)", "query": "patagonia arcteryx tnf", "price_to": 50},
-    {"name": "Collezionismo - Diabolik & Fumetti", "query": "lotto diabolik fumetti vintage", "price_to": 25},
-    {"name": "Collezionismo - Album Panini Vintage", "query": "album panini calciatori", "price_to": 35},
-    {"name": "Collezionismo - Retrogaming", "query": "giochi ps1 ps2 nintendo", "price_to": 30},
-    {"name": "Maglie da Calcio Vintage", "query": "maglia calcio vintage", "price_to": 30},
-    {"name": "Sneakers / Brand Selezionati", "query": "sneakers nike adidas jordan", "price_to": 50},
-    {"name": "Streetwear Generico", "query": "felpa carhartt stussy supreme", "price_to": 50}
+    {"name": "Gorpcore & Techwear", "query": "arcteryx gore tex jacket", "price_to": 110},
+    {"name": "Streetwear Vintage / Terrace", "query": "stone island cp company vintage", "price_to": 90},
+    {"name": "Lotti Streetwear & Denim", "query": "lotto carhartt stussy dickies", "price_to": 55},
+    {"name": "Retrogaming di Nicchia", "query": "gameboy color advance nintendo ps1", "price_to": 45},
+    {"name": "Lotti Fumetti & Collezionismo", "query": "lotto diabolik tex fumetti vintage", "price_to": 35},
+    {"name": "Maglie Calcio Anni 90/2000", "query": "maglia calcio vintage 90s", "price_to": 40},
+    {"name": "Streetwear Raro / T-Shirt", "query": "stussy supreme vintage t shirt", "price_to": 45}
 ]
 
 def get_working_chat_models():
@@ -52,20 +51,21 @@ def evaluate_deal_with_groq(title, price):
         return {"is_deal": False, "estimated_resell_price": 0, "estimated_profit": 0}
 
     prompt = f"""
-    Sei un reseller professionista ed estremamente scettico.
-    Analizza questo articolo in vendita su Vinted:
+    Sei un reseller esperto e un cacciatore di affari su Vinted, Subito ed eBay.
+    Analizza questo articolo/lotto in vendita:
     - Titolo/Descrizione: {title}
-    - Prezzo di vendita su Vinted: {price} EUR
+    - Prezzo di acquisto su Vinted: {price} EUR
 
-    Compito:
-    Stima il REALE valore di mercato attuale dell'usato su Vinted/Subito (NON il prezzo da nuovo).
+    Istruzioni di valutazione:
+    1. Se si tratta di brand ricercati (Arc'teryx, Stone Island, Stussy, Retrogaming, Maglie Calcio Anni '90) o di un LOTTO composto da più pezzi, considera il valore cumulativo reale di mercato dell'usato in buone condizioni.
+    2. Mantieni un approccio realistico ma riconosci i reali prezzi di mercato.
+    
     Rispondi SOLO ed ESCLUSIVAMENTE con un oggetto JSON valido in questo formato esatto:
-    {{"estimated_resell_price": 25.0}}
+    {{"estimated_resell_price": 35.0}}
     """
 
     for model_name in AVAILABLE_MODELS:
         try:
-            # Tentativo con JSON rigido e max_tokens limitato per evitare rate limit
             try:
                 completion = groq_client.chat.completions.create(
                     model=model_name,
@@ -98,8 +98,9 @@ def evaluate_deal_with_groq(title, price):
                 if num_match:
                     estimated_resell = float(num_match.group(1))
 
-            net_profit = estimated_resell - price - 5.0
-            is_deal = net_profit >= 10.0
+            # Spese realistiche stimate (3.5€) e margine minimo di 8.0€
+            net_profit = estimated_resell - price - 3.5
+            is_deal = net_profit >= 8.0
             
             return {
                 "is_deal": is_deal,
@@ -107,7 +108,6 @@ def evaluate_deal_with_groq(title, price):
                 "estimated_profit": round(net_profit, 2)
             }
         except Exception as e:
-            # Se un modello dà errore di token/rate limit, passa subito al successivo
             if "rate_limit_exceeded" in str(e) or "OTPM" in str(e):
                 continue
             print(f"        [Errore Groq con {model_name}]: {e}")
@@ -151,7 +151,7 @@ def run_scan():
         browser={'browser': 'chrome', 'platform': 'windows', 'desktop': True}
     )
 
-    print(">>> AVVIO SCANSIONE VINTED (STABILE CON MAX_TOKENS) <<<")
+    print(">>> AVVIO SCANSIONE VINTED OPTIMIZED <<<")
 
     for target in TARGET_QUERIES:
         print(f"--- Scansione: {target['name']} ---")
@@ -177,10 +177,7 @@ def run_scan():
 
             for a_tag in soup.find_all('a', href=re.compile(r'/items/\d+')):
                 href = a_tag.get('href', '')
-                if not href.startswith('http'):
-                    item_url = f"https://www.vinted.it{href}"
-                else:
-                    item_url = href
+                item_url = f"https://www.vinted.it{href}" if not href.startswith('http') else href
 
                 id_match = re.search(r'/items/(\d+)-?([^?#]*)', item_url)
                 if not id_match:
@@ -244,7 +241,7 @@ def run_scan():
                     print(f"        🔥 AFFARE TROVATO! Invio notifica Telegram...")
                     send_telegram_alt(title, price, est_val, profit, item_url, item_id)
                 else:
-                    print(f"        ❌ Scartato (margine inferiore a 10€ o non conveniente)")
+                    print(f"        ❌ Scartato (margine inferiore a 8€ o non conveniente)")
 
                 time.sleep(1)
         except Exception as e:
