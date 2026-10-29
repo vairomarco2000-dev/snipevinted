@@ -30,6 +30,7 @@ TARGET_QUERIES = [
 
 def evaluate_deal_with_groq(title, price):
     if not groq_client:
+        print("        [DEBUG] Groq Client non inizializzato (manca API Key)")
         return {"is_deal": False, "estimated_resell_price": 0, "estimated_profit": 0}
 
     prompt = f"""
@@ -40,14 +41,13 @@ def evaluate_deal_with_groq(title, price):
 
     Compito:
     Stima il REALE valore di mercato attuale dell'usato su Vinted/Subito (NON il prezzo da nuovo).
-    Rispondi STRICTLY in formato JSON privo di qualsiasi testo extra con questa struttura esatta:
-    {{"estimated_resell_price": 0}}
+    Rispondi SOLO ed ESCLUSIVAMENTE con un oggetto JSON valido in questo formato esatto:
+    {{"estimated_resell_price": 25.0}}
     """
 
-    # Lista modelli per fallback automatico in ordine di priorità
     candidate_models = [
+        "llama-3.1-8b-instant",
         "llama-3.3-70b-versatile",
-        "llama3-8b-8192",
         "mixtral-8x7b-32768",
         "gemma2-9b-it"
     ]
@@ -61,23 +61,33 @@ def evaluate_deal_with_groq(title, price):
                 response_format={"type": "json_object"}
             )
             
-            content = completion.choices[0].message.content
-            data = json.loads(content)
-            estimated_resell = float(data.get("estimated_resell_price", 0))
+            raw_content = completion.choices[0].message.content.strip()
+            
+            # Parsing flessibile del JSON
+            data = json.loads(raw_content)
+            val = data.get("estimated_resell_price", 0)
+            
+            # Pulizia nel caso in cui restituisca una stringa con '€' o virgole
+            if isinstance(val, str):
+                val_clean = re.sub(r'[^\d\.]', '', val.replace(',', '.'))
+                estimated_resell = float(val_clean) if val_clean else 0.0
+            else:
+                estimated_resell = float(val)
+
             net_profit = estimated_resell - price - 5.0
             is_deal = net_profit >= 10.0
+            
             return {
                 "is_deal": is_deal,
-                "estimated_resell_price": estimated_resell,
+                "estimated_resell_price": round(estimated_resell, 2),
                 "estimated_profit": round(net_profit, 2)
             }
         except Exception as e:
-            err_msg = str(e)
-            if "model_not_found" in err_msg or "404" in err_msg or "decommissioned" in err_msg:
-                # Tenta il modello successivo nella lista
+            err_str = str(e)
+            if "model_not_found" in err_str or "404" in err_str or "decommissioned" in err_str:
                 continue
             else:
-                print(f"        [Errore Groq con {model_name}]: {e}")
+                print(f"        [DEBUG Errore Groq su {model_name}]: {e}")
                 break
 
     return {"is_deal": False, "estimated_resell_price": 0, "estimated_profit": 0}
@@ -119,7 +129,7 @@ def run_scan():
         browser={'browser': 'chrome', 'platform': 'windows', 'desktop': True}
     )
 
-    print(">>> AVVIO SCANSIONE VINTED (SDK GROQ CON FALLBACK AUTOMATICO) <<<")
+    print(">>> AVVIO SCANSIONE VINTED (GROQ PARSER CORRETTO) <<<")
 
     for target in TARGET_QUERIES:
         print(f"--- Scansione: {target['name']} ---")
