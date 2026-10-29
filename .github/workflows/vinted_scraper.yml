@@ -2,33 +2,34 @@ name: Vinted Scraper Worker
 
 on:
   schedule:
-    # Esegue ogni 10 minuti tra le 07:00 e le 22:00 UTC (09:00 - 24:00 italiane)
+    # Esegue lo script ogni 10 minuti tra le 07:00 e le 22:00 UTC (09:00 - 00:00 ora italiana)
     - cron: '*/10 7-22 * * *'
-  workflow_dispatch: # Permette l'avvio manuale dalla scheda Actions
+  workflow_dispatch: # Permette l'avvio manuale dalla scheda Actions su GitHub
 
 jobs:
-  scrape_and_evaluate:
+  scrape_and_notify:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout del codice
-        uses: actions/checkout@v4
+        uses: actions/checkout@v3
 
       - name: Configura Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v4
         with:
           python-version: '3.11'
 
       - name: Installa dipendenze
         run: |
           python -m pip install --upgrade pip
-          pip install requests cloudscraper gspread oauth2client beautifulsoup4
+          pip install requests cloudscraper gspread oauth2client beautifulsoup4 groq
 
-      - name: Esegui lo script di scraping
+      - name: Esegui Scraper Vinted
         env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
           RENDER_SERVER_URL: ${{ secrets.RENDER_SERVER_URL }}
-          SHEET_NAME: "Vinted_Resell"
-        run: python bot_scraper.py
+        run: |
+          python bot_scraper.py
