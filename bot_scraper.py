@@ -34,15 +34,12 @@ def get_working_chat_models():
     try:
         models = groq_client.models.list()
         valid_models = []
-        # Escludiamo esplicitamente guardrail, prompt-guard, whisper e safetensors
         for m in models.data:
             m_id = m.id.lower()
-            if "guard" in m_id or "whisper" in m_id or "safetensor" in m_id:
+            if "guard" in m_id or "whisper" in m_id or "safetensor" in m_id or "embedding" in m_id:
                 continue
             if any(k in m_id for k in ["llama", "mixtral", "gemma", "qwen"]):
                 valid_models.append(m.id)
-        
-        print(f"        [DEBUG] Modelli Generativi trovati: {valid_models}")
         return valid_models
     except Exception as e:
         print(f"        [DEBUG] Errore recupero modelli: {e}")
@@ -68,28 +65,28 @@ def evaluate_deal_with_groq(title, price):
 
     for model_name in AVAILABLE_MODELS:
         try:
-            # Prova prima con la modalità JSON rigida
+            # Tentativo con JSON rigido e max_tokens limitato per evitare rate limit
             try:
                 completion = groq_client.chat.completions.create(
                     model=model_name,
                     messages=[{"role": "user", "content": prompt}],
                     temperature=0.1,
+                    max_tokens=150,
                     response_format={"type": "json_object"}
                 )
             except Exception as json_err:
                 if "JSON output" in str(json_err):
-                    # Fallback senza la modalità response_format rigida
                     completion = groq_client.chat.completions.create(
                         model=model_name,
                         messages=[{"role": "user", "content": prompt}],
-                        temperature=0.1
+                        temperature=0.1,
+                        max_tokens=150
                     )
                 else:
                     raise json_err
             
             raw_content = completion.choices[0].message.content.strip()
             
-            # Estrazione valore tramite Regex o JSON
             estimated_resell = 0.0
             try:
                 data = json.loads(raw_content)
@@ -110,6 +107,9 @@ def evaluate_deal_with_groq(title, price):
                 "estimated_profit": round(net_profit, 2)
             }
         except Exception as e:
+            # Se un modello dà errore di token/rate limit, passa subito al successivo
+            if "rate_limit_exceeded" in str(e) or "OTPM" in str(e):
+                continue
             print(f"        [Errore Groq con {model_name}]: {e}")
 
     return {"is_deal": False, "estimated_resell_price": 0, "estimated_profit": 0}
@@ -151,7 +151,7 @@ def run_scan():
         browser={'browser': 'chrome', 'platform': 'windows', 'desktop': True}
     )
 
-    print(">>> AVVIO SCANSIONE VINTED (LLM FILTER CORRETTO) <<<")
+    print(">>> AVVIO SCANSIONE VINTED (STABILE CON MAX_TOKENS) <<<")
 
     for target in TARGET_QUERIES:
         print(f"--- Scansione: {target['name']} ---")
