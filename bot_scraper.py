@@ -44,7 +44,7 @@ def evaluate_deal_with_groq(title, price):
     """
     
     payload = {
-        "model": "llama-3.3-70b-versatile",
+        "model": "llama3-8b-8192",
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.1,
         "response_format": {"type": "json_object"}
@@ -106,7 +106,7 @@ def run_scan():
         browser={'browser': 'chrome', 'platform': 'windows', 'desktop': True}
     )
 
-    print(">>> AVVIO SCANSIONE VINTED (LLAMA 3.3-70B + TITLE PARSER) <<<")
+    print(">>> AVVIO SCANSIONE VINTED (LLAMA 3 8B STABILE) <<<")
 
     for target in TARGET_QUERIES:
         print(f"--- Scansione: {target['name']} ---")
@@ -143,7 +143,6 @@ def run_scan():
                 item_id = id_match.group(1)
                 slug_title = id_match.group(2).replace('-', ' ').strip()
 
-                # Estrazione migliorata del titolo
                 title = ""
                 if slug_title and len(slug_title) > 2:
                     title = slug_title.capitalize()
