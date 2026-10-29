@@ -61,8 +61,10 @@ def evaluate_deal_with_groq(title, price):
                 "estimated_resell_price": estimated_resell,
                 "estimated_profit": round(net_profit, 2)
             }
+        else:
+            print(f"        [Errore API Groq Status {res.status_code}]: {res.text}")
     except Exception as e:
-        print(f"Errore Groq: {e}")
+        print(f"        [Eccezione Groq]: {e}")
     return {"is_deal": False, "estimated_resell_price": 0, "estimated_profit": 0}
 
 def send_telegram_alt(title, price, est_price, profit, item_url, item_id):
@@ -102,7 +104,7 @@ def run_scan():
         browser={'browser': 'chrome', 'platform': 'windows', 'desktop': True}
     )
 
-    print(">>> AVVIO SCANSIONE VINTED (HTML DIRECT PARSER + DEBUG) <<<")
+    print(">>> AVVIO SCANSIONE VINTED (HTML PARSER CORRETTO) <<<")
 
     for target in TARGET_QUERIES:
         print(f"--- Scansione: {target['name']} ---")
@@ -138,18 +140,27 @@ def run_scan():
                     continue
                 item_id = id_match.group(1)
 
-                title = "Articolo Vinted"
+                # Estrazione migliorata del titolo dai tag visibili nella card Vinted
+                title = ""
+                # 1. Cerca nell'attributo alt dell'immagine
                 img_tag = a_tag.find('img')
                 if img_tag and img_tag.get('alt'):
-                    title = img_tag.get('alt')
-                else:
-                    title_elem = a_tag.find(['h3', 'span', 'p'])
-                    if title_elem and title_elem.text.strip():
-                        title = title_elem.text.strip()
+                    title = img_tag.get('alt').strip()
+                
+                # 2. Se vuoto, cerca nei titoli/testi interni al link o nel blocco adiacente
+                if not title or title == "item":
+                    for tag_name in ['h4', 'h3', 'p', 'span', 'div']:
+                        found = a_tag.find(tag_name)
+                        if found and len(found.text.strip()) > 3:
+                            title = found.text.strip()
+                            break
+
+                if not title:
+                    title = target['name'] # Fallback sul nome della query se proprio non trova altro
 
                 price = 0.0
                 parent = a_tag.parent
-                for _ in range(3):
+                for _ in range(4):
                     if not parent:
                         break
                     text_content = parent.get_text()
