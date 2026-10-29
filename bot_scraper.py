@@ -12,48 +12,15 @@ GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 
 SENT_ITEMS_FILE = "sent_items.json"
 
-TARGET_URLS = [
-    # --- Streetwear & Casuals Specifici ---
-    {
-        "name": "Streetwear - Weekend Offender", 
-        "url": "https://www.vinted.it/catalog?search_text=weekend+offender&price_to=45.00&currency=EUR&order=newest_first"
-    },
-    {
-        "name": "Workwear & Denim (Carhartt WIP, Dickies)", 
-        "url": "https://www.vinted.it/catalog?brand_ids[]=53&brand_ids[]=371&catalog[]=1452&catalog[]=257&catalog[]=30&price_to=45.00&currency=EUR&status_ids[]=1&status_ids[]=2&status_ids[]=6&order=newest_first"
-    },
-    {
-        "name": "Outdoor & Gorpcore (Patagonia, Arc'teryx, Mammut, TNF)", 
-        "url": "https://www.vinted.it/catalog?brand_ids[]=2703&brand_ids[]=1775&brand_ids[]=5977&brand_ids[]=364&catalog[]=1452&catalog[]=30&price_to=50.00&currency=EUR&status_ids[]=1&status_ids[]=2&status_ids[]=6&order=newest_first"
-    },
-
-    # --- Collezionismo Cartaceo & Vintage ---
-    {
-        "name": "Collezionismo - Diabolik & Fumetti D'Autore", 
-        "url": "https://www.vinted.it/catalog?search_text=lotto+diabolik+fumetti+vintage&price_to=25.00&currency=EUR&order=newest_first"
-    },
-    {
-        "name": "Collezionismo - Album Panini Vintage", 
-        "url": "https://www.vinted.it/catalog?search_text=album+panini+calciatori&price_to=35.00&currency=EUR&order=newest_first"
-    },
-    {
-        "name": "Collezionismo - Retrogaming (PS1, PS2, Nintendo)", 
-        "url": "https://www.vinted.it/catalog?search_text=giochi+ps1+ps2+nintendo&price_to=30.00&currency=EUR&order=newest_first"
-    },
-
-    # --- Sportwear & Altre Ricerche ---
-    {
-        "name": "Maglie da Calcio & Sportwear Vintage", 
-        "url": "https://www.vinted.it/catalog?search_text=maglia+calcio+vintage&price_to=30.00&currency=EUR&order=newest_first"
-    },
-    {
-        "name": "Sneakers / Brand Selezionati", 
-        "url": "https://www.vinted.it/catalog?search_id=4905681358&catalog[]=2050&size_ids[]=207&size_ids[]=208&size_ids[]=209&page=1&brand_ids[]=53&brand_ids[]=14&brand_ids[]=94&brand_ids[]=304&brand_ids[]=88&brand_ids[]=4273&brand_ids[]=2319&brand_ids[]=255&brand_ids[]=73306&brand_ids[]=214&brand_ids[]=161&brand_ids[]=2929&brand_ids[]=139&status_ids[]=6&status_ids[]=1&status_ids[]=2&price_to=50.00&currency=EUR&order=newest_first"
-    },
-    {
-        "name": "Streetwear Generico (Filtro Taglie)", 
-        "url": "https://www.vinted.it/catalog?search_id=4908212226&catalog[]=1452&page=1&brand_ids[]=53&brand_ids[]=14&brand_ids[]=2703&brand_ids[]=1775&brand_ids[]=5977&brand_ids[]=370427&size_ids[]=784&size_ids[]=786&price_to=50.00&currency=EUR&order=newest_first"
-    }
+# Query mirate ad alto margine e ricerca lotti
+TARGET_QUERIES = [
+    {"name": "Gorpcore & Techwear", "query": "arcteryx gore tex jacket", "price_to": 110},
+    {"name": "Streetwear Vintage / Terrace", "query": "stone island cp company vintage", "price_to": 90},
+    {"name": "Lotti Streetwear & Denim", "query": "lotto carhartt stussy dickies", "price_to": 55},
+    {"name": "Retrogaming di Nicchia", "query": "gameboy color advance nintendo ps1", "price_to": 45},
+    {"name": "Lotti Fumetti & Collezionismo", "query": "lotto diabolik tex fumetti vintage", "price_to": 35},
+    {"name": "Maglie Calcio Anni 90/2000", "query": "maglia calcio vintage 90s", "price_to": 40},
+    {"name": "Streetwear Raro / T-Shirt", "query": "stussy supreme vintage t shirt", "price_to": 45}
 ]
 
 session = requests.Session()
@@ -69,18 +36,38 @@ def init_session():
     except Exception as e:
         print(f"Errore inizializzazione sessione: {e}", flush=True)
 
-def send_telegram_alert(message):
+def send_telegram_with_buttons(title, price, est_price, profit, item_url, item_id):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    msg = (
+        f"🚨 <b>NUOVA OPPORTUNITÀ RESELL!</b>\n\n"
+        f"📦 <b>Articolo:</b> {title}\n"
+        f"💸 <b>Prezzo Vinted:</b> {price} €\n"
+        f"📈 <b>Valore stimato:</b> {est_price} €\n"
+        f"💰 <b>Margine netto stimato:</b> +{profit} €\n\n"
+        f"🔗 <a href='{item_url}'>Visualizza su Vinted</a>"
+    )
+    
+    reply_markup = {
+        "inline_keyboard": [
+            [
+                {"text": "✅ Acquistato", "callback_data": f"buy_{item_id}_{price}_{profit}"},
+                {"text": "⭐ Salva", "callback_data": f"save_{item_id}_{price}_{profit}"},
+                {"text": "❌ Scarta", "callback_data": f"dismiss_{item_id}"}
+            ]
+        ]
+    }
+    
     payload = {
         "chat_id": TELEGRAM_CHAT_ID,
-        "text": message,
+        "text": msg,
         "parse_mode": "HTML",
-        "disable_web_page_preview": True
+        "disable_web_page_preview": True,
+        "reply_markup": json.dumps(reply_markup)
     }
     try:
-        requests.post(url, data=payload, timeout=5)
+        requests.post(url, json=payload, timeout=5)
     except Exception as e:
-        print(f"Errore invio Telegram: {e}", flush=True)
+        print(f"Errore invio Telegram con bottoni: {e}", flush=True)
 
 def load_sent_items():
     if os.path.exists(SENT_ITEMS_FILE):
@@ -102,7 +89,7 @@ def save_sent_item(item_id):
         subprocess.run(["git", "config", "--global", "user.name", "VintedBot"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         subprocess.run(["git", "config", "--global", "user.email", "bot@users.noreply.github.com"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         subprocess.run(["git", "add", SENT_ITEMS_FILE], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        subprocess.run(["git", "commit", "-m", "Update sent items memory [skip ci]"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(["git", "commit", -m, "Update sent items memory [skip ci]"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         subprocess.run(["git", "push"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except Exception as e:
         print(f"Impossibile salvare lo stato su git: {e}", flush=True)
@@ -121,9 +108,6 @@ def get_dynamic_model():
             for m in valid_models:
                 if "qwen" in m or "gpt-oss-20b" in m:
                     return m
-            for m in valid_models:
-                if "gpt-oss" in m or "allam" in m:
-                    return m
             if valid_models:
                 return valid_models[0]
             if models:
@@ -140,14 +124,12 @@ def evaluate_deal_with_groq(title, price, model_name):
     }
     
     prompt = f"""
-    Sei un reseller professionista ed estremamente scettico.
-    Analizza questo articolo in vendita su Vinted:
+    Sei un reseller esperto. Analizza questo articolo/lotto in vendita su Vinted:
     - Titolo: {title}
     - Prezzo di vendita su Vinted: {price} EUR
 
-    Compito:
-    Stima il REALE valore di mercato attuale dell'usato su Vinted/Subito (NON il prezzo da nuovo). 
-    Rispondi STRICTLY in formato JSON privo di qualsiasi testo extra con questa struttura esatta:
+    Stima il REALE valore di mercato dell'usato. Se è un lotto, stima il valore cumulativo.
+    Rispondi STRICTLY in formato JSON privo di testo extra:
     {{"estimated_resell_price": 0}}
     """
 
@@ -158,154 +140,105 @@ def evaluate_deal_with_groq(title, price, model_name):
         "response_format": {"type": "json_object"}
     }
 
-    wait_times = [15, 25]
-    for attempt in range(len(wait_times) + 1):
-        try:
-            res = requests.post(url, json=payload, headers=headers, timeout=10)
-            if res.status_code == 200:
-                content = res.json()["choices"][0]["message"]["content"]
-                data = json.loads(content)
-                estimated_resell = float(data.get("estimated_resell_price", 0))
-                
-                net_profit = estimated_resell - price - 5.0
-                is_deal = net_profit >= 15.0
-                
-                return {
-                    "is_deal": is_deal,
-                    "estimated_resell_price": estimated_resell,
-                    "estimated_profit": round(net_profit, 2)
-                }
-            elif res.status_code == 429:
-                if attempt < len(wait_times):
-                    sleep_time = wait_times[attempt]
-                    print(f"Rate limit raggiunto (429), attendo {sleep_time} secondi...", flush=True)
-                    time.sleep(sleep_time)
-                    continue
-                else:
-                    print("Rate limit persistente: tentativi esauriti.", flush=True)
-                    break
-            else:
-                print(f"Errore Groq API ({res.status_code}): {res.text}", flush=True)
-                break
-        except Exception as e:
-            print(f"Errore chiamata Groq: {e}", flush=True)
-            break
+    try:
+        res = requests.post(url, json=payload, headers=headers, timeout=10)
+        if res.status_code == 200:
+            content = res.json()["choices"][0]["message"]["content"]
+            data = json.loads(content)
+            estimated_resell = float(data.get("estimated_resell_price", 0))
+            
+            net_profit = estimated_resell - price - 3.5
+            is_deal = net_profit >= 8.0
+            
+            return {
+                "is_deal": is_deal,
+                "estimated_resell_price": estimated_resell,
+                "estimated_profit": round(net_profit, 2)
+            }
+    except Exception as e:
+        print(f"Errore chiamata Groq: {e}", flush=True)
         
     return {"is_deal": False, "estimated_resell_price": 0, "estimated_profit": 0}
 
 def scrape_and_check():
     sent_items = load_sent_items()
-    print(f">>> BOT AVVIATO CORRETTAMENTE CON GROQ (Memoria: {len(sent_items)} articoli tracciati) <<<", flush=True)
+    print(f">>> BOT AVVIATO (Memoria: {len(sent_items)} articoli tracciati) <<<", flush=True)
     
     model_name = get_dynamic_model()
-    print(f">>> MODELLO SELEZIONATO AUTOMATICAMENTE: {model_name} <<<", flush=True)
+    print(f">>> MODELLO SELEZIONATO: {model_name} <<<", flush=True)
     init_session()
     
-    for index, target in enumerate(TARGET_URLS, 1):
-        print(f"\n--- Controllo {target['name']} ({index}/{len(TARGET_URLS)}) ---", flush=True)
+    for index, target in enumerate(TARGET_QUERIES, 1):
+        print(f"\n--- Scansione: {target['name']} ({index}/{len(TARGET_QUERIES)}) ---", flush=True)
         try:
-            res = session.get(target['url'], timeout=10)
+            query_str = target['query'].replace(' ', '%20')
+            catalog_url = f"https://www.vinted.it/catalog?search_text={query_str}&price_to={target['price_to']}&order=newest_first"
+            
+            res = session.get(catalog_url, timeout=15)
             if res.status_code != 200:
-                print(f"Status Code errato: {res.status_code}", flush=True)
                 continue
             
             soup = BeautifulSoup(res.text, "html.parser")
-            all_links = soup.find_all("a", href=lambda h: h and "/items/" in h)
-            
-            unique_items = []
-            seen_urls = set()
-            for link in all_links:
-                href = link.get("href")
-                if href not in seen_urls:
-                    seen_urls.add(href)
-                    unique_items.append(link)
-            
-            print(f"Annunci unici trovati: {len(unique_items)}", flush=True)
-            
-            for i, link_tag in enumerate(unique_items[:5], 1):
-                item_url = link_tag.get("href")
-                if not item_url.startswith("http"):
-                    item_url = "https://www.vinted.it" + item_url
-                
-                item_id_match = re.search(r'/items/(\d+)', item_url)
-                if item_id_match:
-                    item_id = item_id_match.group(1)
-                else:
-                    item_id = item_url
+            items = []
+
+            for a_tag in soup.find_all('a', href=re.compile(r'/items/\d+')):
+                href = a_tag.get('href', '')
+                item_url = f"https://www.vinted.it{href}" if not href.startswith('http') else href
+
+                id_match = re.search(r'/items/(\d+)', item_url)
+                if not id_match:
+                    continue
+                item_id = id_match.group(1)
 
                 if item_id in sent_items:
-                    print(f"[{i}/5] Articolo {item_id} già notificato in precedenza. Salto.", flush=True)
                     continue
 
-                card = link_tag
-                for _ in range(3):
-                    if card and card.parent:
-                        card = card.parent
-                
-                card_text = card.get_text(separator=" ", strip=True) if card else link_tag.get_text(separator=" ", strip=True)
-                lower_text = card_text.lower()
-                
-                # Filtro parole chiave negative
-                bad_keywords = ["ricambi", "non funziona", "rotto", "difettoso", "danneggiato", "da sistemare", "bloccato", "replica", "fake"]
-                if any(kw in lower_text for kw in bad_keywords):
-                    print(f"[{i}/5] Scartato per presenza parole chiave di difetti/ricambi/fake.", flush=True)
-                    continue
+                slug_title = item_url.split('/')[-1].split('?')[0].replace('-', ' ').strip()
+                title = slug_title.capitalize() if len(slug_title) > 2 else target['query'].capitalize()
 
-                # Filtro singole figurine Panini
-                if "figurina" in lower_text and "album" not in lower_text and "lotto" not in lower_text:
-                    print(f"[{i}/5] Scartato: è una singola figurina, non un album/lotto.", flush=True)
-                    continue
+                img_tag = a_tag.find('img')
+                if img_tag and img_tag.get('alt'):
+                    title = img_tag.get('alt').strip()
 
                 price = 0.0
-                price_match = re.search(r'(\d+[\.,]\d{2})\s*€|€\s*(\d+[\.,]\d{2})|(\d+)\s*€|€\s*(\d+)', card_text)
-                if price_match:
-                    groups = [g for g in price_match.groups() if g is not None]
-                    if groups:
-                        p_str = groups[0].replace(",", ".")
+                parent = a_tag.parent
+                for _ in range(4):
+                    if not parent:
+                        break
+                    text_content = parent.get_text()
+                    price_match = re.search(r'([\d,\.]+)\s*€', text_content)
+                    if price_match:
                         try:
-                            price = float(p_str)
-                        except ValueError:
+                            price = float(price_match.group(1).replace(',', '.'))
+                            break
+                        except:
                             pass
-                
-                if price <= 0:
-                    continue
-                
-                parts = item_url.split('/')[-1].split('?')[0].split('-')
-                if len(parts) > 1:
-                    title = " ".join(parts[1:]).title()
-                else:
-                    title = "Articolo Vinted"
+                    parent = parent.parent
 
-                print(f"[{i}/5] Analisi per: '{title[:35]}' ({price}€)...", flush=True)
-                eval_res = evaluate_deal_with_groq(title, price, model_name)
-                print(f"Esito Groq: {eval_res}", flush=True)
+                if not any(it['id'] == item_id for it in items):
+                    if price > 0 and price <= target['price_to']:
+                        items.append({"id": item_id, "title": title, "url": item_url, "price": price})
+
+            for item in items[:4]:
+                print(f"   👉 Analizzo: {item['title'][:35]} | {item['price']}€")
+                eval_res = evaluate_deal_with_groq(item['title'], item['price'], model_name)
                 
                 if eval_res.get("is_deal"):
-                    print("--> Affare trovato! Invio notifica Telegram...", flush=True)
-                    profit = eval_res.get("estimated_profit")
-                    est_price = eval_res.get("estimated_resell_price")
-                    
-                    msg = (
-                        f"🚨 <b>NUOVA OPPORTUNITÀ RESELL!</b>\n\n"
-                        f"📦 <b>Articolo:</b> {title}\n"
-                        f"💸 <b>Prezzo Vinted:</b> {price} €\n"
-                        f"📈 <b>Valore stimato:</b> {est_price} €\n"
-                        f"💰 <b>Margine netto stimato:</b> +{profit} €\n\n"
-                        f"🔗 <a href='{item_url}'>Visualizza su Vinted</a>"
+                    print(f"   🔥 Affare trovato! Invio notifica con bottoni...")
+                    send_telegram_with_buttons(
+                        item['title'], 
+                        item['price'], 
+                        eval_res.get('estimated_resell_price'), 
+                        eval_res.get('estimated_profit'), 
+                        item['url'], 
+                        item['id']
                     )
-                    send_telegram_alert(msg)
-                    save_sent_item(item_id)
-                    sent_items.add(str(item_id))
+                    save_sent_item(item['id'])
+                    sent_items.add(str(item['id']))
                 
-                time.sleep(10)
-                
+                time.sleep(1)
         except Exception as e:
-            print(f"Errore durante lo scraping di {target['name']}: {e}", flush=True)
+            print(f"Errore durante la query {target['name']}: {e}", flush=True)
 
 if __name__ == "__main__":
-    try:
-        scrape_and_check()
-    except Exception as fatal_error:
-        error_msg = f"⚠️ <b>ATTENZIONE: Bot Vinted in crash!</b>\nErrore critico: <code>{str(fatal_error)}</code>"
-        print(error_msg, flush=True)
-        send_telegram_alert(error_msg)
+    scrape_and_check()
