@@ -42,7 +42,7 @@ def evaluate_deal_with_groq(title, price):
     {{"estimated_resell_price": 0}}
     """
     payload = {
-        "model": "llama-3.3-70b-versatile",
+        "model": "llama-3.1-70b-versatile",
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.1,
         "response_format": {"type": "json_object"}
@@ -104,7 +104,7 @@ def run_scan():
         browser={'browser': 'chrome', 'platform': 'windows', 'desktop': True}
     )
 
-    print(">>> AVVIO SCANSIONE VINTED (HTML PARSER CORRETTO) <<<")
+    print(">>> AVVIO SCANSIONE VINTED (MODELLO GROQ CORRETTO) <<<")
 
     for target in TARGET_QUERIES:
         print(f"--- Scansione: {target['name']} ---")
@@ -140,14 +140,11 @@ def run_scan():
                     continue
                 item_id = id_match.group(1)
 
-                # Estrazione migliorata del titolo dai tag visibili nella card Vinted
                 title = ""
-                # 1. Cerca nell'attributo alt dell'immagine
                 img_tag = a_tag.find('img')
                 if img_tag and img_tag.get('alt'):
                     title = img_tag.get('alt').strip()
                 
-                # 2. Se vuoto, cerca nei titoli/testi interni al link o nel blocco adiacente
                 if not title or title == "item":
                     for tag_name in ['h4', 'h3', 'p', 'span', 'div']:
                         found = a_tag.find(tag_name)
@@ -156,7 +153,7 @@ def run_scan():
                             break
 
                 if not title:
-                    title = target['name'] # Fallback sul nome della query se proprio non trova altro
+                    title = target['name']
 
                 price = 0.0
                 parent = a_tag.parent
