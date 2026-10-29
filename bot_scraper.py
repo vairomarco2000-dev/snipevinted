@@ -5,12 +5,16 @@ import re
 from bs4 import BeautifulSoup
 import requests
 import cloudscraper
+from groq import Groq
 
 # Variabili d'ambiente gestite dai GitHub Secrets
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 RENDER_SERVER_URL = os.environ.get("RENDER_SERVER_URL", "").rstrip('/')
+
+# Inizializzazione del client ufficiale Groq (niente più URL HTTP manuali)
+groq_client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 
 TARGET_QUERIES = [
     {"name": "Streetwear - Weekend Offender", "query": "weekend offender", "price_to": 45},
@@ -25,12 +29,9 @@ TARGET_QUERIES = [
 ]
 
 def evaluate_deal_with_groq(title, price):
-    if not GROQ_API_KEY:
+    if not groq_client:
         return {"is_deal": False, "estimated_resell_price": 0, "estimated_profit": 0}
 
-    url = "https://api.groq.com/openai/v1/chat/completions"
-    headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
-    
     prompt = f"""
     Sei un reseller professionista ed estremamente scettico.
     Analizza questo articolo in vendita su Vinted:
@@ -42,31 +43,29 @@ def evaluate_deal_with_groq(title, price):
     Rispondi STRICTLY in formato JSON privo di qualsiasi testo extra con questa struttura esatta:
     {{"estimated_resell_price": 0}}
     """
-    
-    payload = {
-        "model": "llama-3.1-8b-instant",
-        "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.1,
-        "response_format": {"type": "json_object"}
-    }
 
     try:
-        res = requests.post(url, json=payload, headers=headers, timeout=10)
-        if res.status_code == 200:
-            content = res.json()["choices"][0]["message"]["content"]
-            data = json.loads(content)
-            estimated_resell = float(data.get("estimated_resell_price", 0))
-            net_profit = estimated_resell - price - 5.0
-            is_deal = net_profit >= 10.0
-            return {
-                "is_deal": is_deal,
-                "estimated_resell_price": estimated_resell,
-                "estimated_profit": round(net_profit, 2)
-            }
-        else:
-            print(f"        [Errore API Groq Status {res.status_code}]: {res.text}")
+        # Usiamo il client ufficiale con fallback automatico sui modelli attivi
+        completion = groq_client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.1,
+            response_format={"type": "json_object"}
+        )
+        
+        content = completion.choices[0].message.content
+        data = json.loads(content)
+        estimated_resell = float(data.get("estimated_resell_price", 0))
+        net_profit = estimated_resell - price - 5.0
+        is_deal = net_profit >= 10.0
+        return {
+            "is_deal": is_deal,
+            "estimated_resell_price": estimated_resell,
+            "estimated_profit": round(net_profit, 2)
+        }
     except Exception as e:
-        print(f"        [Eccezione Groq]: {e}")
+        print(f"        [Errore Groq SDK]: {e}")
+    
     return {"is_deal": False, "estimated_resell_price": 0, "estimated_profit": 0}
 
 def send_telegram_alt(title, price, est_price, profit, item_url, item_id):
@@ -106,7 +105,7 @@ def run_scan():
         browser={'browser': 'chrome', 'platform': 'windows', 'desktop': True}
     )
 
-    print(">>> AVVIO SCANSIONE VINTED (LLAMA 3.1 8B INSTANT) <<<")
+    print(">>> AVVIO SCANSIONE VINTED (SDK UFFICIALE GROQ) <<<")
 
     for target in TARGET_QUERIES:
         print(f"--- Scansione: {target['name']} ---")
