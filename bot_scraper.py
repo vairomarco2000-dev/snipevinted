@@ -12,7 +12,7 @@ GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 
 SENT_ITEMS_FILE = "sent_items.json"
 
-# Query mirate ad alto margine e ricerca lotti
+# Le tue ricerche ad alto margine basate su query mirate
 TARGET_QUERIES = [
     {"name": "Gorpcore & Techwear", "query": "arcteryx gore tex jacket", "price_to": 110},
     {"name": "Streetwear Vintage / Terrace", "query": "stone island cp company vintage", "price_to": 90},
@@ -36,38 +36,18 @@ def init_session():
     except Exception as e:
         print(f"Errore inizializzazione sessione: {e}", flush=True)
 
-def send_telegram_with_buttons(title, price, est_price, profit, item_url, item_id):
+def send_telegram_alert(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    msg = (
-        f"🚨 <b>NUOVA OPPORTUNITÀ RESELL!</b>\n\n"
-        f"📦 <b>Articolo:</b> {title}\n"
-        f"💸 <b>Prezzo Vinted:</b> {price} €\n"
-        f"📈 <b>Valore stimato:</b> {est_price} €\n"
-        f"💰 <b>Margine netto stimato:</b> +{profit} €\n\n"
-        f"🔗 <a href='{item_url}'>Visualizza su Vinted</a>"
-    )
-    
-    reply_markup = {
-        "inline_keyboard": [
-            [
-                {"text": "✅ Acquistato", "callback_data": f"buy_{item_id}_{price}_{profit}"},
-                {"text": "⭐ Salva", "callback_data": f"save_{item_id}_{price}_{profit}"},
-                {"text": "❌ Scarta", "callback_data": f"dismiss_{item_id}"}
-            ]
-        ]
-    }
-    
     payload = {
         "chat_id": TELEGRAM_CHAT_ID,
-        "text": msg,
+        "text": message,
         "parse_mode": "HTML",
-        "disable_web_page_preview": True,
-        "reply_markup": json.dumps(reply_markup)
+        "disable_web_page_preview": True
     }
     try:
-        requests.post(url, json=payload, timeout=5)
+        requests.post(url, data=payload, timeout=5)
     except Exception as e:
-        print(f"Errore invio Telegram con bottoni: {e}", flush=True)
+        print(f"Errore invio Telegram: {e}", flush=True)
 
 def load_sent_items():
     if os.path.exists(SENT_ITEMS_FILE):
@@ -89,7 +69,7 @@ def save_sent_item(item_id):
         subprocess.run(["git", "config", "--global", "user.name", "VintedBot"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         subprocess.run(["git", "config", "--global", "user.email", "bot@users.noreply.github.com"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         subprocess.run(["git", "add", SENT_ITEMS_FILE], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        subprocess.run(["git", "commit", -m, "Update sent items memory [skip ci]"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(["git", "commit", "-m", "Update sent items memory [skip ci]"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         subprocess.run(["git", "push"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except Exception as e:
         print(f"Impossibile salvare lo stato su git: {e}", flush=True)
@@ -124,12 +104,13 @@ def evaluate_deal_with_groq(title, price, model_name):
     }
     
     prompt = f"""
-    Sei un reseller esperto. Analizza questo articolo/lotto in vendita su Vinted:
+    Sei un reseller professionista ed estremamente scettico.
+    Analizza questo articolo in vendita su Vinted:
     - Titolo: {title}
     - Prezzo di vendita su Vinted: {price} EUR
 
-    Stima il REALE valore di mercato dell'usato. Se è un lotto, stima il valore cumulativo.
-    Rispondi STRICTLY in formato JSON privo di testo extra:
+    Stima il REALE valore di mercato attuale dell'usato su Vinted/Subito. 
+    Rispondi STRICTLY in formato JSON privo di qualsiasi testo extra con questa struttura esatta:
     {{"estimated_resell_price": 0}}
     """
 
@@ -179,66 +160,93 @@ def scrape_and_check():
                 continue
             
             soup = BeautifulSoup(res.text, "html.parser")
-            items = []
-
-            for a_tag in soup.find_all('a', href=re.compile(r'/items/\d+')):
-                href = a_tag.get('href', '')
-                item_url = f"https://www.vinted.it{href}" if not href.startswith('http') else href
-
-                id_match = re.search(r'/items/(\d+)', item_url)
-                if not id_match:
-                    continue
-                item_id = id_match.group(1)
+            all_links = soup.find_all("a", href=lambda h: h and "/items/" in h)
+            
+            unique_items = []
+            seen_urls = set()
+            for link in all_links:
+                href = link.get("href")
+                if href not in seen_urls:
+                    seen_urls.add(href)
+                    unique_items.append(link)
+            
+            for i, link_tag in enumerate(unique_items[:5], 1):
+                item_url = link_tag.get("href")
+                if not item_url.startswith("http"):
+                    item_url = "https://www.vinted.it" + item_url
+                
+                item_id_match = re.search(r'/items/(\d+)', item_url)
+                if item_id_match:
+                    item_id = item_id_match.group(1)
+                else:
+                    item_id = item_url
 
                 if item_id in sent_items:
                     continue
 
-                slug_title = item_url.split('/')[-1].split('?')[0].replace('-', ' ').strip()
-                title = slug_title.capitalize() if len(slug_title) > 2 else target['query'].capitalize()
+                card = link_tag
+                for _ in range(3):
+                    if card and card.parent:
+                        card = card.parent
+                
+                card_text = card.get_text(separator=" ", strip=True) if card else link_tag.get_text(separator=" ", strip=True)
+                lower_text = card_text.lower()
+                
+                # Filtro parole chiave negative
+                bad_keywords = ["ricambi", "non funziona", "rotto", "difettoso", "danneggiato", "da sistemare", "bloccato", "replica", "fake"]
+                if any(kw in lower_text for kw in bad_keywords):
+                    continue
 
-                img_tag = a_tag.find('img')
-                if img_tag and img_tag.get('alt'):
-                    title = img_tag.get('alt').strip()
+                # ESTRAZIONE TITOLO MIGLIORATA: Cerca l'immagine o l'attributo alt nel card
+                title = ""
+                img_tag = card.find("img") if card else None
+                if img_tag and img_tag.get("alt"):
+                    title = img_tag.get("alt").strip()
+
+                if not title:
+                    parts = item_url.split('/')[-1].split('?')[0].split('-')
+                    if len(parts) > 1 and len(parts[1]) > 2:
+                        title = " ".join(parts[1:]).title()
+                    else:
+                        title = target['name']
 
                 price = 0.0
-                parent = a_tag.parent
-                for _ in range(4):
-                    if not parent:
-                        break
-                    text_content = parent.get_text()
-                    price_match = re.search(r'([\d,\.]+)\s*€', text_content)
-                    if price_match:
+                price_match = re.search(r'(\d+[\.,]\d{2})\s*€|€\s*(\d+[\.,]\d{2})|(\d+)\s*€|€\s*(\d+)', card_text)
+                if price_match:
+                    groups = [g for g in price_match.groups() if g is not None]
+                    if groups:
                         try:
-                            price = float(price_match.group(1).replace(',', '.'))
-                            break
-                        except:
+                            price = float(groups[0].replace(",", "."))
+                        except ValueError:
                             pass
-                    parent = parent.parent
+                
+                if price <= 0:
+                    continue
 
-                if not any(it['id'] == item_id for it in items):
-                    if price > 0 and price <= target['price_to']:
-                        items.append({"id": item_id, "title": title, "url": item_url, "price": price})
-
-            for item in items[:4]:
-                print(f"   👉 Analizzo: {item['title'][:35]} | {item['price']}€")
-                eval_res = evaluate_deal_with_groq(item['title'], item['price'], model_name)
+                print(f"   👉 Analizzo: '{title[:35]}' ({price}€)")
+                eval_res = evaluate_deal_with_groq(title, price, model_name)
                 
                 if eval_res.get("is_deal"):
-                    print(f"   🔥 Affare trovato! Invio notifica con bottoni...")
-                    send_telegram_with_buttons(
-                        item['title'], 
-                        item['price'], 
-                        eval_res.get('estimated_resell_price'), 
-                        eval_res.get('estimated_profit'), 
-                        item['url'], 
-                        item['id']
+                    print("   🔥 Affare trovato! Invio notifica...")
+                    profit = eval_res.get("estimated_profit")
+                    est_price = eval_res.get("estimated_resell_price")
+                    
+                    msg = (
+                        f"🚨 <b>NUOVA OPPORTUNITÀ RESELL!</b>\n\n"
+                        f"📦 <b>Articolo:</b> {title}\n"
+                        f"💸 <b>Prezzo Vinted:</b> {price} €\n"
+                        f"📈 <b>Valore stimato:</b> {est_price} €\n"
+                        f"💰 <b>Margine netto stimato:</b> +{profit} €\n\n"
+                        f"🔗 <a href='{item_url}'>Visualizza su Vinted</a>"
                     )
-                    save_sent_item(item['id'])
-                    sent_items.add(str(item['id']))
+                    send_telegram_alert(msg)
+                    save_sent_item(item_id)
+                    sent_items.add(str(item_id))
                 
-                time.sleep(1)
+                time.sleep(2)
+                
         except Exception as e:
-            print(f"Errore durante la query {target['name']}: {e}", flush=True)
+            print(f"Errore durante lo scraping di {target['name']}: {e}", flush=True)
 
 if __name__ == "__main__":
     scrape_and_check()
