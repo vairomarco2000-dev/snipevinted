@@ -4,7 +4,7 @@ import time
 import requests
 import cloudscraper
 
-# Variabili d'ambiente da GitHub Secrets
+# Variabili d'ambiente gestite dai GitHub Secrets
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
@@ -52,7 +52,7 @@ def evaluate_deal_with_groq(title, price):
             content = res.json()["choices"][0]["message"]["content"]
             data = json.loads(content)
             estimated_resell = float(data.get("estimated_resell_price", 0))
-            net_profit = estimated_resell - price - 5.0  # considera spese di spedizione/commissioni medie
+            net_profit = estimated_resell - price - 5.0  # tiene conto di commissioni e spedizione
             is_deal = net_profit >= 10.0
             return {
                 "is_deal": is_deal,
@@ -74,7 +74,6 @@ def send_telegram_alert(title, price, est_price, profit, item_url, item_id):
         f"🔗 <a href='{item_url}'>Visualizza su Vinted</a>"
     )
     
-    # I pulsanti inviano i dati al tuo server su Render per la registrazione su Google Sheets
     reply_markup = {
         "inline_keyboard": [
             [
@@ -92,7 +91,7 @@ def send_telegram_alert(title, price, est_price, profit, item_url, item_id):
     }
     try:
         requests.post(url, data=payload, timeout=5)
-        print(f"Notifica inviata per: {title}")
+        print(f"Notifica Telegram inviata per: {title}")
     except Exception as e:
         print(f"Errore invio Telegram: {e}")
 
@@ -106,19 +105,28 @@ def run_scan():
     for target in TARGET_QUERIES:
         print(f"--- Scansione: {target['name']} ---")
         try:
-            api_url = f"https://www.vinted.it/api/v2/catalog/items?search_text={target['query']}&price_to={target['price_to']}&currency=EUR&order=newest_first"
+            api_url = "https://www.vinted.it/api/v2/catalog/items"
+            params = {
+                "search_text": target['query'],
+                "price_to": target['price_to'],
+                "currency": "EUR",
+                "order": "newest_first"
+            }
             headers = {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
                 "Accept": "application/json, text/plain, */*",
+                "Accept-Language": "it-IT,it;q=0.9",
                 "Referer": "https://www.vinted.it/"
             }
-            res = scraper.get(api_url, headers=headers, timeout=10)
+            
+            res = scraper.get(api_url, params=params, headers=headers, timeout=10)
 
             if res.status_code != 200:
                 print(f"  └─ Errore API Vinted (Status {res.status_code})")
                 continue
 
-            items = res.json().get("items", [])
+            data = res.json()
+            items = data.get("items", [])
             print(f"  └─ Trovati {len(items)} articoli")
 
             for item in items[:5]:
