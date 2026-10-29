@@ -102,16 +102,16 @@ def run_scan():
 
     print(">>> AVVIO SCANSIONE VINTED VIA GITHUB ACTIONS <<<")
 
-    # STEP 1: Inizializzazione cookie di sessione obbligatori
+    # STEP 1: Inizializzazione sessione sul dominio principale .fr (spesso usato come hub API stabile)
     try:
-        print("Inizializzazione sessione su Vinted...")
+        print("Inizializzazione sessione globale su Vinted...")
         init_headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
             "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7",
             "Connection": "keep-alive"
         }
-        init_res = scraper.get("https://www.vinted.it", headers=init_headers, timeout=15)
+        init_res = scraper.get("https://www.vinted.fr", headers=init_headers, timeout=15)
         if init_res.status_code == 200:
             print("Sessione inizializzata con successo! Cookie acquisiti.")
         else:
@@ -121,12 +121,11 @@ def run_scan():
 
     time.sleep(2)
 
-    # STEP 2: Esecuzione delle ricerche con endpoint standard pulito
+    # STEP 2: Esecuzione delle ricerche sull'endpoint API stabile
     for target in TARGET_QUERIES:
         print(f"--- Scansione: {target['name']} ---")
         try:
-            # Usiamo la rotta principale del catalogo con i parametri di ricerca puliti
-            api_url = "https://www.vinted.it/api/v2/catalog/items"
+            api_url = "https://www.vinted.fr/api/v2/catalog/items"
             params = {
                 "search_text": target['query'],
                 "price_to": str(target['price_to']),
@@ -138,15 +137,11 @@ def run_scan():
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
                 "Accept": "application/json, text/plain, */*",
                 "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7",
-                "Referer": "https://www.vinted.it/",
-                "Origin": "https://www.vinted.it",
-                "X-Requested-With": "XMLHttpRequest",
-                "Sec-Ch-Ua": '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
-                "Sec-Ch-Ua-Mobile": "?0",
-                "Sec-Ch-Ua-Platform": '"Windows"'
+                "Referer": "https://www.vinted.fr/",
+                "Origin": "https://www.vinted.fr",
+                "X-Requested-With": "XMLHttpRequest"
             }
             
-            # Effettuiamo la richiesta mantenendo i cookie di sessione precedentemente salvati nello 'scraper'
             res = scraper.get(api_url, params=params, headers=headers, timeout=10)
 
             if res.status_code != 200:
