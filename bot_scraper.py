@@ -27,9 +27,26 @@ TARGET_QUERIES = [
     {"name": "Streetwear Generico", "query": "felpa carhartt stussy supreme", "price_to": 50}
 ]
 
+def get_working_model():
+    """Chiede direttamente a Groq quali modelli sono abilitati su questa chiave"""
+    if not groq_client:
+        return "llama-3.1-8b-instant"
+    try:
+        models = groq_client.models.list()
+        available = [m.id for m in models.data if "chat" in m.id or "llama" in m.id or "mixtral" in m.id or "gemma" in m.id]
+        if available:
+            print(f"        [DEBUG] Modelli disponibili trovati su Groq: {available[:3]}")
+            return available[0] # Prende il primo disponibile in assoluto
+    except Exception as e:
+        print(f"        [DEBUG] Impossibile recuperare la lista modelli: {e}")
+    return "llama-3.1-8b-instant"
+
+# Rileva dinamicamente il modello funzionante all'avvio
+ACTIVE_MODEL = get_working_model()
+print(f">>> MODELLO GROQ SELEZIONATO AUTOMATICAMENTE: {ACTIVE_MODEL} <<<")
+
 def evaluate_deal_with_groq(title, price):
     if not groq_client:
-        print("        [DEBUG] Groq Client non inizializzato!")
         return {"is_deal": False, "estimated_resell_price": 0, "estimated_profit": 0}
 
     prompt = f"""
@@ -44,45 +61,34 @@ def evaluate_deal_with_groq(title, price):
     {{"estimated_resell_price": 25.0}}
     """
 
-    candidate_models = [
-        "llama-3.1-8b-instant",
-        "llama-3.3-70b-versatile",
-        "llama3-70b-8192",
-        "gemma2-9b-it"
-    ]
+    try:
+        completion = groq_client.chat.completions.create(
+            model=ACTIVE_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.1,
+            response_format={"type": "json_object"}
+        )
+        
+        raw_content = completion.choices[0].message.content.strip()
+        data = json.loads(raw_content)
+        val = data.get("estimated_resell_price", 0)
+        
+        if isinstance(val, str):
+            val_clean = re.sub(r'[^\d\.]', '', val.replace(',', '.'))
+            estimated_resell = float(val_clean) if val_clean else 0.0
+        else:
+            estimated_resell = float(val)
 
-    for model_name in candidate_models:
-        try:
-            completion = groq_client.chat.completions.create(
-                model=model_name,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.1,
-                response_format={"type": "json_object"}
-            )
-            
-            raw_content = completion.choices[0].message.content.strip()
-            data = json.loads(raw_content)
-            val = data.get("estimated_resell_price", 0)
-            
-            if isinstance(val, str):
-                val_clean = re.sub(r'[^\d\.]', '', val.replace(',', '.'))
-                estimated_resell = float(val_clean) if val_clean else 0.0
-            else:
-                estimated_resell = float(val)
-
-            net_profit = estimated_resell - price - 5.0
-            is_deal = net_profit >= 10.0
-            
-            # Se ha funzionato, stampiamo quale modello ha risposto
-            # print(f"        [OK Modello usato: {model_name}]")
-            return {
-                "is_deal": is_deal,
-                "estimated_resell_price": round(estimated_resell, 2),
-                "estimated_profit": round(net_profit, 2)
-            }
-        except Exception as e:
-            # Stampiamo il dettaglio esatto di cosa fallisce
-            print(f"        [FALLITO su {model_name}]: {e}")
+        net_profit = estimated_resell - price - 5.0
+        is_deal = net_profit >= 10.0
+        
+        return {
+            "is_deal": is_deal,
+            "estimated_resell_price": round(estimated_resell, 2),
+            "estimated_profit": round(net_profit, 2)
+        }
+    except Exception as e:
+        print(f"        [Errore Groq con {ACTIVE_MODEL}]: {e}")
 
     return {"is_deal": False, "estimated_resell_price": 0, "estimated_profit": 0}
 
@@ -123,7 +129,7 @@ def run_scan():
         browser={'browser': 'chrome', 'platform': 'windows', 'desktop': True}
     )
 
-    print(">>> AVVIO SCANSIONE VINTED (VERBOSE DEBUG AI) <<<")
+    print(">>> AVVIO SCANSIONE VINTED (MODELLO DINAMICO) <<<")
 
     for target in TARGET_QUERIES:
         print(f"--- Scansione: {target['name']} ---")
