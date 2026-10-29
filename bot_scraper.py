@@ -103,6 +103,7 @@ def run_scan():
     print(">>> AVVIO SCANSIONE VINTED VIA GITHUB ACTIONS <<<")
 
     # STEP 1: Inizializza i cookie visitando la homepage di Vinted
+    csrf_token = None
     try:
         print("Inizializzazione sessione e cookie su Vinted...")
         init_headers = {
@@ -113,6 +114,10 @@ def run_scan():
         init_res = scraper.get("https://www.vinted.it", headers=init_headers, timeout=15)
         if init_res.status_code == 200:
             print("Sessione inizializzata con successo! Cookie acquisiti.")
+            # Estrazione eventuale cookie CSRF se presente
+            for cookie in scraper.cookies:
+                if "csrf" in cookie.name.lower() or "session" in cookie.name.lower():
+                    csrf_token = cookie.value
         else:
             print(f"Attenzione: Status homepage {init_res.status_code}")
     except Exception as e:
@@ -120,26 +125,42 @@ def run_scan():
 
     time.sleep(2)
 
-    # STEP 2: Esegui le ricerche usando l'URL con query string formattata
+    # STEP 2: Esegui le ricerche
     for target in TARGET_QUERIES:
         print(f"--- Scansione: {target['name']} ---")
         try:
-            query_str = target['query'].replace(' ', '%20')
-            api_url = f"https://www.vinted.it/api/v2/catalog/items?search_text={query_str}&price_to={target['price_to']}&currency=EUR&order=newest_first"
+            # Endpoint dinamico v2 catalog
+            api_url = "https://www.vinted.it/api/v2/catalog/items"
+            params = {
+                "search_text": target['query'],
+                "price_to": str(target['price_to']),
+                "currency": "EUR",
+                "order": "newest_first",
+                "page": "1",
+                "per_page": "10"
+            }
             
             headers = {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
                 "Accept": "application/json, text/plain, */*",
                 "Accept-Language": "it-IT,it;q=0.9",
-                "Referer": "https://www.vinted.it/catalog",
+                "Referer": f"https://www.vinted.it/catalog?search_text={target['query'].replace(' ', '%20')}",
                 "X-Requested-With": "XMLHttpRequest"
             }
             
-            res = scraper.get(api_url, headers=headers, timeout=10)
+            if csrf_token:
+                headers["X-CSRF-Token"] = csrf_token
 
+            res = scraper.get(api_url, params=params, headers=headers, timeout=10)
+
+            # Se l'API JSON risponde 404, fallback immediato alla chiamata diretta del catalogo web
             if res.status_code != 200:
-                print(f"  └─ Errore API Vinted (Status {res.status_code})")
-                continue
+                print(f"  └─ API Status {res.status_code}, provo il fallback sul catalogo web...")
+                web_url = f"https://www.vinted.it/catalog?search_text={target['query'].replace(' ', '%20')}&price_to={target['price_to']}&order=newest_first"
+                res = scraper.get(web_url, headers=headers, timeout=10)
+                if res.status_code != 200:
+                    print(f"  └─ Errore anche su Web Catalog (Status {res.status_code})")
+                    continue
 
             data = res.json()
             items = data.get("items", [])
