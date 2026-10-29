@@ -1,7 +1,6 @@
 import os
 import json
 import time
-import re
 import requests
 import cloudscraper
 
@@ -103,72 +102,61 @@ def run_scan():
 
     print(">>> AVVIO SCANSIONE VINTED VIA GITHUB ACTIONS <<<")
 
-    # STEP 1: Recupera token di sessione e cookie dalla homepage
-    auth_token = None
+    # STEP 1: Inizializzazione cookie di sessione obbligatori
     try:
-        print("Inizializzazione sessione e recupero token d'accesso Vinted...")
+        print("Inizializzazione sessione su Vinted...")
         init_headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7"
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+            "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7",
+            "Connection": "keep-alive"
         }
         init_res = scraper.get("https://www.vinted.it", headers=init_headers, timeout=15)
         if init_res.status_code == 200:
-            print("Sessione inizializzata! Cookie acquisiti.")
-            # Cerca l'access token nell'HTML della pagina o nei cookie
-            match = re.search(r'"access_token":"([^"]+)"', init_res.text)
-            if match:
-                auth_token = match.group(1)
-                print("Token di autenticazione estratto con successo!")
-            else:
-                # Controlla se presente nei cookie
-                for cookie in scraper.cookies:
-                    if "access_token" in cookie.name or "session" in cookie.name:
-                        auth_token = cookie.value
-                        break
+            print("Sessione inizializzata con successo! Cookie acquisiti.")
         else:
             print(f"Attenzione: Status homepage {init_res.status_code}")
     except Exception as e:
-        print(f"Errore durante l'inizializzazione dei cookie/token: {e}")
+        print(f"Errore inizializzazione sessione: {e}")
 
     time.sleep(2)
 
-    # STEP 2: Esegui le ricerche
+    # STEP 2: Esecuzione delle ricerche con endpoint standard pulito
     for target in TARGET_QUERIES:
         print(f"--- Scansione: {target['name']} ---")
         try:
+            # Usiamo la rotta principale del catalogo con i parametri di ricerca puliti
             api_url = "https://www.vinted.it/api/v2/catalog/items"
             params = {
                 "search_text": target['query'],
                 "price_to": str(target['price_to']),
                 "currency": "EUR",
-                "order": "newest_first",
-                "page": "1",
-                "per_page": "10"
+                "order": "newest_first"
             }
             
             headers = {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
                 "Accept": "application/json, text/plain, */*",
-                "Accept-Language": "it-IT,it;q=0.9",
-                "Referer": f"https://www.vinted.it/catalog?search_text={target['query'].replace(' ', '%20')}",
-                "X-Requested-With": "XMLHttpRequest"
+                "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7",
+                "Referer": "https://www.vinted.it/",
+                "Origin": "https://www.vinted.it",
+                "X-Requested-With": "XMLHttpRequest",
+                "Sec-Ch-Ua": '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
+                "Sec-Ch-Ua-Mobile": "?0",
+                "Sec-Ch-Ua-Platform": '"Windows"'
             }
-
-            if auth_token:
-                headers["Authorization"] = f"Bearer {auth_token}"
-
+            
+            # Effettuiamo la richiesta mantenendo i cookie di sessione precedentemente salvati nello 'scraper'
             res = scraper.get(api_url, params=params, headers=headers, timeout=10)
 
             if res.status_code != 200:
-                print(f"  └─ API Status {res.status_code}")
+                print(f"  └─ Errore API Vinted (Status {res.status_code})")
                 continue
 
-            # Gestione sicura del JSON
             try:
                 data = res.json()
             except Exception:
-                print("  └─ Errore parsing JSON dalla risposta API")
+                print("  └─ Errore di decodifica JSON")
                 continue
 
             items = data.get("items", [])
