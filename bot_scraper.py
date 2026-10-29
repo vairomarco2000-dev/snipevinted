@@ -27,26 +27,31 @@ TARGET_QUERIES = [
     {"name": "Streetwear Generico", "query": "felpa carhartt stussy supreme", "price_to": 50}
 ]
 
-def get_working_model():
-    """Chiede direttamente a Groq quali modelli sono abilitati su questa chiave"""
+def get_working_chat_models():
+    """Filtra ed estrae solo i modelli generativi di Chat validi da Groq"""
     if not groq_client:
-        return "llama-3.1-8b-instant"
+        return []
     try:
         models = groq_client.models.list()
-        available = [m.id for m in models.data if "chat" in m.id or "llama" in m.id or "mixtral" in m.id or "gemma" in m.id]
-        if available:
-            print(f"        [DEBUG] Modelli disponibili trovati su Groq: {available[:3]}")
-            return available[0] # Prende il primo disponibile in assoluto
+        valid_models = []
+        # Escludiamo esplicitamente guardrail, prompt-guard, whisper e safetensors
+        for m in models.data:
+            m_id = m.id.lower()
+            if "guard" in m_id or "whisper" in m_id or "safetensor" in m_id:
+                continue
+            if any(k in m_id for k in ["llama", "mixtral", "gemma", "qwen"]):
+                valid_models.append(m.id)
+        
+        print(f"        [DEBUG] Modelli Generativi trovati: {valid_models}")
+        return valid_models
     except Exception as e:
-        print(f"        [DEBUG] Impossibile recuperare la lista modelli: {e}")
-    return "llama-3.1-8b-instant"
+        print(f"        [DEBUG] Errore recupero modelli: {e}")
+    return []
 
-# Rileva dinamicamente il modello funzionante all'avvio
-ACTIVE_MODEL = get_working_model()
-print(f">>> MODELLO GROQ SELEZIONATO AUTOMATICAMENTE: {ACTIVE_MODEL} <<<")
+AVAILABLE_MODELS = get_working_chat_models()
 
 def evaluate_deal_with_groq(title, price):
-    if not groq_client:
+    if not groq_client or not AVAILABLE_MODELS:
         return {"is_deal": False, "estimated_resell_price": 0, "estimated_profit": 0}
 
     prompt = f"""
@@ -61,34 +66,51 @@ def evaluate_deal_with_groq(title, price):
     {{"estimated_resell_price": 25.0}}
     """
 
-    try:
-        completion = groq_client.chat.completions.create(
-            model=ACTIVE_MODEL,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.1,
-            response_format={"type": "json_object"}
-        )
-        
-        raw_content = completion.choices[0].message.content.strip()
-        data = json.loads(raw_content)
-        val = data.get("estimated_resell_price", 0)
-        
-        if isinstance(val, str):
-            val_clean = re.sub(r'[^\d\.]', '', val.replace(',', '.'))
-            estimated_resell = float(val_clean) if val_clean else 0.0
-        else:
-            estimated_resell = float(val)
+    for model_name in AVAILABLE_MODELS:
+        try:
+            # Prova prima con la modalità JSON rigida
+            try:
+                completion = groq_client.chat.completions.create(
+                    model=model_name,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.1,
+                    response_format={"type": "json_object"}
+                )
+            except Exception as json_err:
+                if "JSON output" in str(json_err):
+                    # Fallback senza la modalità response_format rigida
+                    completion = groq_client.chat.completions.create(
+                        model=model_name,
+                        messages=[{"role": "user", "content": prompt}],
+                        temperature=0.1
+                    )
+                else:
+                    raise json_err
+            
+            raw_content = completion.choices[0].message.content.strip()
+            
+            # Estrazione valore tramite Regex o JSON
+            estimated_resell = 0.0
+            try:
+                data = json.loads(raw_content)
+                val = data.get("estimated_resell_price", 0)
+                val_clean = re.sub(r'[^\d\.]', '', str(val).replace(',', '.'))
+                estimated_resell = float(val_clean) if val_clean else 0.0
+            except:
+                num_match = re.search(r'([\d\.]+)', raw_content)
+                if num_match:
+                    estimated_resell = float(num_match.group(1))
 
-        net_profit = estimated_resell - price - 5.0
-        is_deal = net_profit >= 10.0
-        
-        return {
-            "is_deal": is_deal,
-            "estimated_resell_price": round(estimated_resell, 2),
-            "estimated_profit": round(net_profit, 2)
-        }
-    except Exception as e:
-        print(f"        [Errore Groq con {ACTIVE_MODEL}]: {e}")
+            net_profit = estimated_resell - price - 5.0
+            is_deal = net_profit >= 10.0
+            
+            return {
+                "is_deal": is_deal,
+                "estimated_resell_price": round(estimated_resell, 2),
+                "estimated_profit": round(net_profit, 2)
+            }
+        except Exception as e:
+            print(f"        [Errore Groq con {model_name}]: {e}")
 
     return {"is_deal": False, "estimated_resell_price": 0, "estimated_profit": 0}
 
@@ -129,7 +151,7 @@ def run_scan():
         browser={'browser': 'chrome', 'platform': 'windows', 'desktop': True}
     )
 
-    print(">>> AVVIO SCANSIONE VINTED (MODELLO DINAMICO) <<<")
+    print(">>> AVVIO SCANSIONE VINTED (LLM FILTER CORRETTO) <<<")
 
     for target in TARGET_QUERIES:
         print(f"--- Scansione: {target['name']} ---")
