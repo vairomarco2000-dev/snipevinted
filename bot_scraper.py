@@ -52,7 +52,7 @@ def evaluate_deal_with_groq(title, price):
             content = res.json()["choices"][0]["message"]["content"]
             data = json.loads(content)
             estimated_resell = float(data.get("estimated_resell_price", 0))
-            net_profit = estimated_resell - price - 5.0  # tiene conto di commissioni e spedizione
+            net_profit = estimated_resell - price - 5.0
             is_deal = net_profit >= 10.0
             return {
                 "is_deal": is_deal,
@@ -102,6 +102,25 @@ def run_scan():
 
     print(">>> AVVIO SCANSIONE VINTED VIA GITHUB ACTIONS <<<")
 
+    # STEP 1: Inizializza i cookie visitando la homepage di Vinted
+    try:
+        print("Inizializzazione sessione e cookie su Vinted...")
+        init_headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+            "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7"
+        }
+        init_res = scraper.get("https://www.vinted.it", headers=init_headers, timeout=15)
+        if init_res.status_code == 200:
+            print("Sessione inizializzata con successo! Cookie acquisiti.")
+        else:
+            print(f"Attenzione: Status homepage {init_res.status_code}")
+    except Exception as e:
+        print(f"Errore durante l'inizializzazione dei cookie: {e}")
+
+    time.sleep(2)
+
+    # STEP 2: Esegui le ricerche usando la sessione autenticata dai cookie
     for target in TARGET_QUERIES:
         print(f"--- Scansione: {target['name']} ---")
         try:
@@ -116,7 +135,8 @@ def run_scan():
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
                 "Accept": "application/json, text/plain, */*",
                 "Accept-Language": "it-IT,it;q=0.9",
-                "Referer": "https://www.vinted.it/"
+                "Referer": "https://www.vinted.it/catalog",
+                "X-Requested-With": "XMLHttpRequest"
             }
             
             res = scraper.get(api_url, params=params, headers=headers, timeout=10)
