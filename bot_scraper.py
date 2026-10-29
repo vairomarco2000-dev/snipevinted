@@ -1,6 +1,7 @@
 import os
 import json
 import time
+import re
 import requests
 import cloudscraper
 
@@ -102,26 +103,33 @@ def run_scan():
 
     print(">>> AVVIO SCANSIONE VINTED VIA GITHUB ACTIONS <<<")
 
-    # STEP 1: Inizializza i cookie visitando la homepage di Vinted
-    csrf_token = None
+    # STEP 1: Recupera token di sessione e cookie dalla homepage
+    auth_token = None
     try:
-        print("Inizializzazione sessione e cookie su Vinted...")
+        print("Inizializzazione sessione e recupero token d'accesso Vinted...")
         init_headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7"
         }
         init_res = scraper.get("https://www.vinted.it", headers=init_headers, timeout=15)
         if init_res.status_code == 200:
-            print("Sessione inizializzata con successo! Cookie acquisiti.")
-            # Estrazione eventuale cookie CSRF se presente
-            for cookie in scraper.cookies:
-                if "csrf" in cookie.name.lower() or "session" in cookie.name.lower():
-                    csrf_token = cookie.value
+            print("Sessione inizializzata! Cookie acquisiti.")
+            # Cerca l'access token nell'HTML della pagina o nei cookie
+            match = re.search(r'"access_token":"([^"]+)"', init_res.text)
+            if match:
+                auth_token = match.group(1)
+                print("Token di autenticazione estratto con successo!")
+            else:
+                # Controlla se presente nei cookie
+                for cookie in scraper.cookies:
+                    if "access_token" in cookie.name or "session" in cookie.name:
+                        auth_token = cookie.value
+                        break
         else:
             print(f"Attenzione: Status homepage {init_res.status_code}")
     except Exception as e:
-        print(f"Errore durante l'inizializzazione dei cookie: {e}")
+        print(f"Errore durante l'inizializzazione dei cookie/token: {e}")
 
     time.sleep(2)
 
@@ -129,7 +137,6 @@ def run_scan():
     for target in TARGET_QUERIES:
         print(f"--- Scansione: {target['name']} ---")
         try:
-            # Endpoint dinamico v2 catalog
             api_url = "https://www.vinted.it/api/v2/catalog/items"
             params = {
                 "search_text": target['query'],
@@ -147,22 +154,23 @@ def run_scan():
                 "Referer": f"https://www.vinted.it/catalog?search_text={target['query'].replace(' ', '%20')}",
                 "X-Requested-With": "XMLHttpRequest"
             }
-            
-            if csrf_token:
-                headers["X-CSRF-Token"] = csrf_token
+
+            if auth_token:
+                headers["Authorization"] = f"Bearer {auth_token}"
 
             res = scraper.get(api_url, params=params, headers=headers, timeout=10)
 
-            # Se l'API JSON risponde 404, fallback immediato alla chiamata diretta del catalogo web
             if res.status_code != 200:
-                print(f"  └─ API Status {res.status_code}, provo il fallback sul catalogo web...")
-                web_url = f"https://www.vinted.it/catalog?search_text={target['query'].replace(' ', '%20')}&price_to={target['price_to']}&order=newest_first"
-                res = scraper.get(web_url, headers=headers, timeout=10)
-                if res.status_code != 200:
-                    print(f"  └─ Errore anche su Web Catalog (Status {res.status_code})")
-                    continue
+                print(f"  └─ API Status {res.status_code}")
+                continue
 
-            data = res.json()
+            # Gestione sicura del JSON
+            try:
+                data = res.json()
+            except Exception:
+                print("  └─ Errore parsing JSON dalla risposta API")
+                continue
+
             items = data.get("items", [])
             print(f"  └─ Trovati {len(items)} articoli")
 
