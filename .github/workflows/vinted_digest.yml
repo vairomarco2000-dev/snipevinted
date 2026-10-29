@@ -1,0 +1,30 @@
+name: Vinted Daily Digest
+
+on:
+  schedule:
+    - cron: '0 6,18 * * *'  # Gira alle 08:00 e alle 20:00 italiane
+  workflow_dispatch: # Permette anche il test manuale
+
+jobs:
+  run-digest:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          pip install requests beautifulsoup4 cloudscraper groq
+
+      - name: Run Digest Script
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          python vinted_digest.py
