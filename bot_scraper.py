@@ -120,17 +120,13 @@ def run_scan():
 
     time.sleep(2)
 
-    # STEP 2: Esegui le ricerche usando la sessione autenticata dai cookie
+    # STEP 2: Esegui le ricerche usando l'URL con query string formattata
     for target in TARGET_QUERIES:
         print(f"--- Scansione: {target['name']} ---")
         try:
-            api_url = "https://www.vinted.it/api/v2/catalog/items"
-            params = {
-                "search_text": target['query'],
-                "price_to": target['price_to'],
-                "currency": "EUR",
-                "order": "newest_first"
-            }
+            query_str = target['query'].replace(' ', '%20')
+            api_url = f"https://www.vinted.it/api/v2/catalog/items?search_text={query_str}&price_to={target['price_to']}&currency=EUR&order=newest_first"
+            
             headers = {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
                 "Accept": "application/json, text/plain, */*",
@@ -139,7 +135,7 @@ def run_scan():
                 "X-Requested-With": "XMLHttpRequest"
             }
             
-            res = scraper.get(api_url, params=params, headers=headers, timeout=10)
+            res = scraper.get(api_url, headers=headers, timeout=10)
 
             if res.status_code != 200:
                 print(f"  └─ Errore API Vinted (Status {res.status_code})")
