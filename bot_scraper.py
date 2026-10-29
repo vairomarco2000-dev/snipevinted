@@ -30,10 +30,11 @@ def evaluate_deal_with_groq(title, price):
 
     url = "https://api.groq.com/openai/v1/chat/completions"
     headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
+    
     prompt = f"""
     Sei un reseller professionista ed estremamente scettico.
     Analizza questo articolo in vendita su Vinted:
-    - Titolo: {title}
+    - Titolo/Descrizione: {title}
     - Prezzo di vendita su Vinted: {price} EUR
 
     Compito:
@@ -41,8 +42,9 @@ def evaluate_deal_with_groq(title, price):
     Rispondi STRICTLY in formato JSON privo di qualsiasi testo extra con questa struttura esatta:
     {{"estimated_resell_price": 0}}
     """
+    
     payload = {
-        "model": "llama-3.1-70b-versatile",
+        "model": "llama-3.3-70b-versatile",
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.1,
         "response_format": {"type": "json_object"}
@@ -104,7 +106,7 @@ def run_scan():
         browser={'browser': 'chrome', 'platform': 'windows', 'desktop': True}
     )
 
-    print(">>> AVVIO SCANSIONE VINTED (MODELLO GROQ CORRETTO) <<<")
+    print(">>> AVVIO SCANSIONE VINTED (LLAMA 3.3-70B + TITLE PARSER) <<<")
 
     for target in TARGET_QUERIES:
         print(f"--- Scansione: {target['name']} ---")
@@ -135,25 +137,23 @@ def run_scan():
                 else:
                     item_url = href
 
-                id_match = re.search(r'/items/(\d+)', item_url)
+                id_match = re.search(r'/items/(\d+)-?([^?#]*)', item_url)
                 if not id_match:
                     continue
                 item_id = id_match.group(1)
+                slug_title = id_match.group(2).replace('-', ' ').strip()
 
+                # Estrazione migliorata del titolo
                 title = ""
+                if slug_title and len(slug_title) > 2:
+                    title = slug_title.capitalize()
+
                 img_tag = a_tag.find('img')
-                if img_tag and img_tag.get('alt'):
+                if (not title or title.lower() == "item") and img_tag and img_tag.get('alt'):
                     title = img_tag.get('alt').strip()
-                
-                if not title or title == "item":
-                    for tag_name in ['h4', 'h3', 'p', 'span', 'div']:
-                        found = a_tag.find(tag_name)
-                        if found and len(found.text.strip()) > 3:
-                            title = found.text.strip()
-                            break
 
                 if not title:
-                    title = target['name']
+                    title = target['query'].capitalize()
 
                 price = 0.0
                 parent = a_tag.parent
