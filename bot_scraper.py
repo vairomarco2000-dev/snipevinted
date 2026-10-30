@@ -30,9 +30,9 @@ Rispondi in modo sintetico con questo formato esatto:
 - **Verdetto:** [CONSIGLIATO / RISCHIOSO / SCARTARE]
 """
 
-# --- LISTA QUERY DI RICERCA COMPLETA (PRECEDENTI + NUOVE STRATEGIE) ---
+# --- LISTA QUERY DI RICERCA COMPLETA ---
 TARGET_SEARCHES = [
-    # --- RICERCHE PRECEDENTI (Outdoor, Techwear & Streetwear) ---
+    # Outdoor & Techwear
     {"query": "goretex", "max_price": 35},
     {"query": "gore-tex", "max_price": 35},
     {"query": "salomon", "max_price": 40},
@@ -44,7 +44,7 @@ TARGET_SEARCHES = [
     {"query": "patagonia fleece", "max_price": 35},
     {"query": "north face puffer", "max_price": 50},
 
-    # --- NUOVE: ERRORI DI BATTITURA (TYPOS & MISSPELLED BRANDS) ---
+    # Typos & Errore Battitura
     {"query": "Stusy", "max_price": 20},
     {"query": "Stone Islan", "max_price": 50},
     {"query": "Carhat", "max_price": 25},
@@ -55,20 +55,18 @@ TARGET_SEARCHES = [
     {"query": "Pokmon", "max_price": 20},
     {"query": "Doc martens", "max_price": 40},
 
-    # --- NUOVE: GIUBBINI & BRAND SPECIFICI ---
+    # Giubbini & Brand
     {"query": "giacca carhartt", "max_price": 45},
     {"query": "giubbotto north face", "max_price": 50},
     {"query": "giacca stussy", "max_price": 45},
 
-    # --- NUOVE: RETROGAMING & COLLEZIONISMO ---
+    # Retrogaming & Sneakers
     {"query": "lotto giochi", "max_price": 30},
     {"query": "Gameboy", "max_price": 35},
     {"query": "Ps1 lotto", "max_price": 25},
-
-    # --- NUOVE: SNEAKERS ---
     {"query": "Jordan 1", "max_price": 45},
 
-    # --- NUOVE: KEYWORD SGOMBERO & SVUOTO ARMADIO ---
+    # Keyword Sgombero
     {"query": "svuoto armadio", "max_price": 15},
     {"query": "svendo lotto", "max_price": 25},
     {"query": "pulisco cantina", "max_price": 20}
@@ -89,6 +87,7 @@ def save_sent_items(sent_items):
 
 def evaluate_with_groq(item_title, description, price):
     if not GROQ_API_KEY:
+        print("   ⚠️ GROQ_API_KEY non trovata nelle variabili d'ambiente.")
         return "Analisi IA non disponibile (API Key mancante)."
     
     url = "https://api.groq.com/openai/v1/chat/completions"
@@ -112,8 +111,10 @@ def evaluate_with_groq(item_title, description, price):
         if res.status_code == 200:
             data = res.json()
             return data["choices"][0]["message"]["content"]
+        else:
+            print(f"   ⚠️ Groq Error Code {res.status_code}: {res.text}")
     except Exception as e:
-        print(f"Errore Groq: {e}")
+        print(f"   ❌ Errore durante la chiamata a Groq: {e}")
     
     return "Analisi IA fallita."
 
@@ -131,7 +132,6 @@ def send_telegram_alert(item, ai_analysis):
         f"🔗 [Apri su Vinted]({url})"
     )
     
-    # Tastiera inline per Webhook su Render
     reply_markup = {
         "inline_keyboard": [
             [
@@ -149,45 +149,72 @@ def send_telegram_alert(item, ai_analysis):
         "parse_mode": "Markdown",
         "reply_markup": reply_markup
     }
-    requests.post(tg_url, json=payload)
+    resp = requests.post(tg_url, json=payload)
+    if resp.status_code == 200:
+        print(f"   ✅ Notifica Telegram inviata per: {title}")
+    else:
+        print(f"   ❌ Errore invio Telegram ({resp.status_code}): {resp.text}")
+
+def get_vinted_session():
+    session = requests.Session()
+    session.headers.update({
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7"
+    })
+    try:
+        # Chiamata alla homepage per ottenere i cookie di sessione indispensabili
+        session.get("https://www.vinted.it", timeout=10)
+    except Exception as e:
+        print(f"⚠️ Errore inizializzazione sessione Vinted: {e}")
+    return session
 
 def main():
+    print("🚀 Avvio della scansione Vinted...")
     sent_items = load_sent_items()
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+    print(f"📦 Caricati {len(sent_items)} articoli già visti nel file di memoria.")
+    
+    session = get_vinted_session()
     
     for target in TARGET_SEARCHES:
         query = target["query"]
         max_price = target["max_price"]
+        print(f"\n🔍 Ricerca: '{query}' (Prezzo max: {max_price}€)")
         
         vinted_api_url = f"https://www.vinted.it/api/v2/catalog/items?search_text={query}&order=newest_first&per_page=10"
         
         try:
-            res = requests.get(vinted_api_url, headers=headers, timeout=10)
+            res = session.get(vinted_api_url, timeout=10)
             if res.status_code != 200:
+                print(f"   ⚠️ Risposta Vinted non valida (Status: {res.status_code}). Salto query.")
                 continue
                 
             items = res.json().get("items", [])
+            print(f"   found {len(items)} articoli nell'API.")
+            
             for item in items:
                 item_id = str(item.get("id"))
                 price = float(item.get("price", 999))
+                title = item.get("title", "")
                 
-                # Controllo duplication + filtro severo sul prezzo max
-                if item_id in sent_items or price > max_price:
+                if item_id in sent_items:
                     continue
                 
-                title = item.get("title", "")
+                if price > max_price:
+                    print(f"   ⏩ Scartato '{title[:30]}...' -> Prezzo ({price}€) > Max ({max_price}€)")
+                    continue
+                
+                print(f"   🎯 Analizzo con Groq: '{title}' ({price}€)...")
                 description = item.get("description", "")
                 item_url = item.get("url", f"https://www.vinted.it/items/{item_id}")
                 
-                # Valutazione Groq AI
                 ai_analysis = evaluate_with_groq(title, description, price)
                 
-                # Se il verdetto è scartare, non inviamo la notifica ma lo tracciamo
                 if "SCARTARE" in ai_analysis and "CONSIGLIATO" not in ai_analysis:
+                    print(f"   🚫 Groq ha scartato l'articolo.")
                     sent_items.append(item_id)
                     continue
                 
-                # Invio Notifica Telegram
                 item_data = {
                     "id": item_id,
                     "title": title,
@@ -199,9 +226,13 @@ def main():
                 time.sleep(1)
                 
         except Exception as e:
-            print(f"Errore durante lo scraping della query '{query}': {e}")
+            print(f"   ❌ Errore durante la scansione di '{query}': {e}")
+            
+        # Pausa per evitare rate limit da Vinted
+        time.sleep(1.5)
             
     save_sent_items(sent_items)
+    print("\n✅ Scansione completata con successo!")
 
 if __name__ == "__main__":
     main()
