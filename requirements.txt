@@ -5,3 +5,5 @@ requests[socks]
 PySocks
 beautifulsoup4
 cloudscraper
+groq
+gunicorn
