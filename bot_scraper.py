@@ -39,9 +39,13 @@ def load_sent_items():
     if os.path.exists(SENT_ITEMS_FILE):
         try:
             with open(SENT_ITEMS_FILE, "r") as f:
-                return set(json.load(f))
-        except Exception:
+                data = json.load(f)
+                print(f"   [Memoria] Caricati {len(data)} articoli già inviati da {SENT_ITEMS_FILE}", flush=True)
+                return set(str(x) for x in data)
+        except Exception as e:
+            print(f"   [Memoria] Errore lettura {SENT_ITEMS_FILE}: {e}", flush=True)
             return set()
+    print(f"   [Memoria] File {SENT_ITEMS_FILE} non trovato. Partiamo da zero.", flush=True)
     return set()
 
 def save_sent_item(item_id):
@@ -51,7 +55,7 @@ def save_sent_item(item_id):
         return
     
     sent.add(item_id_str)
-    sent_list = list(sent)[-1000:]
+    sent_list = list(sent)[-1500:]  # Teniamo gli ultimi 1500 IDs
     try:
         with open(SENT_ITEMS_FILE, "w") as f:
             json.dump(sent_list, f, indent=2)
@@ -66,6 +70,8 @@ def save_sent_item(item_id):
             print(f"   [Git Warning] Push fallito, provo con pull --rebase e push...", flush=True)
             subprocess.run(["git", "pull", "--rebase"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             subprocess.run(["git", "push"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        else:
+            print(f"   [Git] ID {item_id_str} salvato e sincronizzato con successo su GitHub.", flush=True)
             
     except Exception as e:
         print(f"Impossibile salvare lo stato su git: {e}", flush=True)
