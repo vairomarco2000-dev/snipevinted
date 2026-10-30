@@ -46,17 +46,27 @@ def load_sent_items():
 
 def save_sent_item(item_id):
     sent = load_sent_items()
-    sent.add(str(item_id))
+    item_id_str = str(item_id)
+    if item_id_str in sent:
+        return
+    
+    sent.add(item_id_str)
     sent_list = list(sent)[-1000:]
     try:
         with open(SENT_ITEMS_FILE, "w") as f:
-            json.dump(sent_list, f)
+            json.dump(sent_list, f, indent=2)
         
         subprocess.run(["git", "config", "--global", "user.name", "VintedBot"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         subprocess.run(["git", "config", "--global", "user.email", "bot@users.noreply.github.com"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         subprocess.run(["git", "add", SENT_ITEMS_FILE], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        subprocess.run(["git", "commit", "-m", "Update sent items memory [skip ci]"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        subprocess.run(["git", "push"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(["git", "commit", "-m", f"Update sent items memory [{item_id_str}] [skip ci]"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        
+        push_res = subprocess.run(["git", "push"], capture_output=True, text=True)
+        if push_res.returncode != 0:
+            print(f"   [Git Warning] Push fallito, provo con pull --rebase e push...", flush=True)
+            subprocess.run(["git", "pull", "--rebase"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.run(["git", "push"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            
     except Exception as e:
         print(f"Impossibile salvare lo stato su git: {e}", flush=True)
 
