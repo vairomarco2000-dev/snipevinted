@@ -12,7 +12,6 @@ GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 
 SENT_ITEMS_FILE = "sent_items.json"
 
-# Le tue ricerche ad alto margine basate su query mirate
 TARGET_QUERIES = [
     {"name": "Gorpcore & Techwear", "query": "arcteryx gore tex jacket", "price_to": 110},
     {"name": "Streetwear Vintage / Terrace", "query": "stone island cp company vintage", "price_to": 90},
@@ -36,19 +35,6 @@ def init_session():
     except Exception as e:
         print(f"Errore inizializzazione sessione: {e}", flush=True)
 
-def send_telegram_alert(message):
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": TELEGRAM_CHAT_ID,
-        "text": message,
-        "parse_mode": "HTML",
-        "disable_web_page_preview": True
-    }
-    try:
-        requests.post(url, data=payload, timeout=5)
-    except Exception as e:
-        print(f"Errore invio Telegram: {e}", flush=True)
-
 def load_sent_items():
     if os.path.exists(SENT_ITEMS_FILE):
         try:
@@ -61,7 +47,7 @@ def load_sent_items():
 def save_sent_item(item_id):
     sent = load_sent_items()
     sent.add(str(item_id))
-    sent_list = list(sent)[-500:]
+    sent_list = list(sent)[-1000:]
     try:
         with open(SENT_ITEMS_FILE, "w") as f:
             json.dump(sent_list, f)
@@ -73,6 +59,39 @@ def save_sent_item(item_id):
         subprocess.run(["git", "push"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except Exception as e:
         print(f"Impossibile salvare lo stato su git: {e}", flush=True)
+
+def send_telegram_alert(title, price, est_price, profit, item_url, item_id):
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    msg = (
+        f"🚨 <b>NUOVA OPPORTUNITÀ RESELL!</b>\n\n"
+        f"📦 <b>Articolo:</b> {title}\n"
+        f"💸 <b>Prezzo Vinted:</b> {price} €\n"
+        f"📈 <b>Valore stimato:</b> {est_price} €\n"
+        f"💰 <b>Margine netto stimato:</b> +{profit} €\n\n"
+        f"🔗 <a href='{item_url}'>Visualizza su Vinted</a>"
+    )
+    
+    reply_markup = {
+        "inline_keyboard": [
+            [
+                {"text": "✅ Acquistato", "callback_data": f"buy_{item_id}_{price}_{profit}"},
+                {"text": "⭐ Salva", "callback_data": f"save_{item_id}_{price}_{profit}"},
+                {"text": "❌ Scarta", "callback_data": f"dismiss_{item_id}"}
+            ]
+        ]
+    }
+    
+    payload = {
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": msg,
+        "parse_mode": "HTML",
+        "disable_web_page_preview": True,
+        "reply_markup": json.dumps(reply_markup)
+    }
+    try:
+        requests.post(url, json=payload, timeout=5)
+    except Exception as e:
+        print(f"Errore invio Telegram: {e}", flush=True)
 
 def get_dynamic_model():
     url = "https://api.groq.com/openai/v1/models"
@@ -181,7 +200,8 @@ def scrape_and_check():
                 else:
                     item_id = item_url
 
-                if item_id in sent_items:
+                if str(item_id) in sent_items:
+                    print(f"   [Skipped] ID {item_id} già presente in memoria.", flush=True)
                     continue
 
                 card = link_tag
@@ -192,12 +212,10 @@ def scrape_and_check():
                 card_text = card.get_text(separator=" ", strip=True) if card else link_tag.get_text(separator=" ", strip=True)
                 lower_text = card_text.lower()
                 
-                # Filtro parole chiave negative
                 bad_keywords = ["ricambi", "non funziona", "rotto", "difettoso", "danneggiato", "da sistemare", "bloccato", "replica", "fake"]
                 if any(kw in lower_text for kw in bad_keywords):
                     continue
 
-                # ESTRAZIONE TITOLO MIGLIORATA: Cerca l'immagine o l'attributo alt nel card
                 title = ""
                 img_tag = card.find("img") if card else None
                 if img_tag and img_tag.get("alt"):
@@ -223,23 +241,16 @@ def scrape_and_check():
                 if price <= 0:
                     continue
 
-                print(f"   👉 Analizzo: '{title[:35]}' ({price}€)")
+                print(f"   👉 Analizzo: '{title[:35]}' ({price}€)", flush=True)
                 eval_res = evaluate_deal_with_groq(title, price, model_name)
                 
+                est_val = eval_res.get('estimated_resell_price', 0)
+                profit = eval_res.get('estimated_profit', 0)
+                print(f"      📊 Groq Stima: {est_val}€ | Profitto Netto: {profit}€", flush=True)
+                
                 if eval_res.get("is_deal"):
-                    print("   🔥 Affare trovato! Invio notifica...")
-                    profit = eval_res.get("estimated_profit")
-                    est_price = eval_res.get("estimated_resell_price")
-                    
-                    msg = (
-                        f"🚨 <b>NUOVA OPPORTUNITÀ RESELL!</b>\n\n"
-                        f"📦 <b>Articolo:</b> {title}\n"
-                        f"💸 <b>Prezzo Vinted:</b> {price} €\n"
-                        f"📈 <b>Valore stimato:</b> {est_price} €\n"
-                        f"💰 <b>Margine netto stimato:</b> +{profit} €\n\n"
-                        f"🔗 <a href='{item_url}'>Visualizza su Vinted</a>"
-                    )
-                    send_telegram_alert(msg)
+                    print("   🔥 Affare trovato! Invio notifica con bottoni...", flush=True)
+                    send_telegram_alert(title, price, est_val, profit, item_url, item_id)
                     save_sent_item(item_id)
                     sent_items.add(str(item_id))
                 
