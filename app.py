@@ -14,7 +14,7 @@ def home():
 def telegram_webhook():
     data = request.get_json()
     if not data:
-        return jsonify({"status": "error"}}, 400
+        return jsonify({"status": "error"}), 400
 
     # Gestione dei click sui bottoni (Callback Query)
     if "callback_query" in data:
@@ -47,7 +47,7 @@ def telegram_webhook():
         answer_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/answerCallbackQuery"
         requests.post(answer_url, json={"callback_query_id": callback_id, "text": answer_text})
 
-    return jsonify({"status": "ok"}}, 200
+    return jsonify({"status": "ok"}), 200
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
