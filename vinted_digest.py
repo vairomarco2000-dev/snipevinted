@@ -13,8 +13,9 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
 groq_client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 
-# Categorie mirate per pezzi da collezione o streetwear di valore
+# Categorie mirate con l'aggiunta di Felpe & Brand Sportivi
 DIGEST_QUERIES = [
+    {"name": "Felpe & Brand Sportivi", "query": "felpa nike adidas vintage", "price_to": 30},
     {"name": "Streetwear di Pregio", "query": "supreme stussy carhartt wip", "price_to": 60},
     {"name": "Collezionismo & Retrogaming", "query": "pokemon giochi nintendo ps1", "price_to": 40},
     {"name": "Maglie Calcio Vintage", "query": "maglia calcio vintage retro", "price_to": 35}
@@ -43,15 +44,22 @@ def evaluate_deal_with_groq(title, price):
         return {"is_deal": False, "estimated_resell_price": 0, "estimated_profit": 0}
 
     prompt = f"""
-    Sei un reseller professionista ed estremamente scettico.
-    Analizza questo articolo in vendita su Vinted (potrebbe avere molti mi piace o essere online da tempo):
-    - Titolo: {title}
-    - Prezzo Vinted: {price} EUR
+Sei un reseller esperto ed estremamente analitico specializzato in Streetwear, Vintage e Collezionismo.
+Analizza questo articolo popolare o datato presente su Vinted:
+- Titolo: {title}
+- Prezzo Vinted: {price} EUR
 
-    Stima il REALE valore di mercato attuale dell'usato.
-    Rispondi SOLO ed ESCLUSIVAMENTE con un oggetto JSON valido in questo formato esatto:
-    {{"estimated_resell_price": 25.0}}
-    """
+Il tuo compito è stimare il REALE valore di mercato dell'usato su Vinted/Subito.
+REGOLE FONDAMENTALI:
+1. Se il capo/oggetto appartiene a brand/franchise noti (es. Nike, Adidas, Supreme, Stussy, Carhartt, Pokemon, Nintendo, Maglie Vintage) ed è a prezzo conveniente, stimane attentamente il valore di mercato.
+2. NON impostare mai 0 come 'estimated_resell_price' se si tratta di un articolo con valore di mercato reale.
+
+Rispondi STRICTLY in formato JSON privo di testo extra con questa struttura esatta:
+{{
+    "estimated_resell_price": 30.0,
+    "reasoning": "Breve spiegazione della stima di rivendita"
+}}
+"""
 
     for model_name in AVAILABLE_MODELS:
         try:
@@ -59,16 +67,16 @@ def evaluate_deal_with_groq(title, price):
                 completion = groq_client.chat.completions.create(
                     model=model_name,
                     messages=[{"role": "user", "content": prompt}],
-                    temperature=0.1,
-                    max_tokens=150,
+                    temperature=0.2,
+                    max_tokens=180,
                     response_format={"type": "json_object"}
                 )
             except:
                 completion = groq_client.chat.completions.create(
                     model=model_name,
                     messages=[{"role": "user", "content": prompt}],
-                    temperature=0.1,
-                    max_tokens=150
+                    temperature=0.2,
+                    max_tokens=180
                 )
             
             raw_content = completion.choices[0].message.content.strip()
@@ -83,8 +91,11 @@ def evaluate_deal_with_groq(title, price):
                 if num_match:
                     estimated_resell = float(num_match.group(1))
 
-            net_profit = estimated_resell - price - 5.0
-            is_deal = net_profit >= 10.0
+            # Calcolo profitto netto (sottraendo 3.5€)
+            net_profit = estimated_resell - price - 3.5
+            
+            # 🎯 SOGLIA MINIMA A 20.0€
+            is_deal = net_profit >= 20.0
             
             return {
                 "is_deal": is_deal,
@@ -103,7 +114,7 @@ def send_telegram_recap(deals_list):
         return
 
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    msg = "📊 <b>RECAP AFFARI VINTED (POPOLARI / DATATI)</b> 📊\n\nEcco i migliori margini trovati in questa sessione:\n\n"
+    msg = "📊 <b>RECAP AFFARI VINTED (POPOLARI / DATATI)</b> 📊\n\nEcco i migliori margini trovati (Profitto minimo +20€):\n\n"
     
     for item in deals_list:
         msg += (
@@ -137,8 +148,8 @@ def run_digest():
         print(f"--- Analisi per rilevanza: {target['name']} ---")
         try:
             query_str = target['query'].replace(' ', '%20')
-            # order=relevance premia gli articoli popolari, con interazioni o in tendenza
-            catalog_url = f"https://www.vinted.it/catalog?search_text={query_str}&price_to={target['price_to']}&order=relevance"
+            # Filtro per rilevanza + condizioni premium (Nuovo / Ottime condizioni)
+            catalog_url = f"https://www.vinted.it/catalog?search_text={query_str}&price_to={target['price_to']}&order=relevance&status_ids[]=1&status_ids[]=2&status_ids[]=6"
             
             headers = {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -188,7 +199,7 @@ def run_digest():
                     if price > 0 and price <= target['price_to']:
                         items.append({"id": item_id, "title": title, "url": item_url, "price": price})
 
-            # Analizziamo un campione più ristretto per evitare timeout
+            # Analizziamo i primi articoli più popolari
             for item in items[:4]:
                 eval_res = evaluate_deal_with_groq(item["title"], item["price"])
                 if eval_res.get("is_deal"):
