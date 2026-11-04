@@ -139,7 +139,6 @@ def get_dynamic_model():
     return "qwen/qwen3.8-27b"
 
 def evaluate_deal_with_groq(title, price, model_name):
-    evaluate_deal_with_groq(title, price, model_name):
     if not GROQ_API_KEY:
         print("   ⚠️ GROQ_API_KEY non trovata.", flush=True)
         return {"estimated_resell_price": 0, "reasoning": "API Key mancante"}
