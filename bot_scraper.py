@@ -139,6 +139,11 @@ def get_dynamic_model():
     return "qwen/qwen3.8-27b"
 
 def evaluate_deal_with_groq(title, price, model_name):
+    evaluate_deal_with_groq(title, price, model_name):
+    if not GROQ_API_KEY:
+        print("   ⚠️ GROQ_API_KEY non trovata.", flush=True)
+        return {"estimated_resell_price": 0, "reasoning": "API Key mancante"}
+
     url = "https://api.groq.com/openai/v1/chat/completions"
     headers = {
         "Authorization": f"Bearer {GROQ_API_KEY}",
@@ -151,15 +156,15 @@ def evaluate_deal_with_groq(title, price, model_name):
     - Titolo: {title}
     - Prezzo di vendita su Vinted: {price} EUR
 
-    Stima il REALE valore di mercato attuale dell'usato su Vinted/Subito. 
+    Stima il REALE valore di mercato attuale dell'usato su Vinted/Subito. Non mettere mai 0 come valore stimato se il capo ha un valore di mercato reale.
     Rispondi STRICTLY in formato JSON privo di qualsiasi testo extra con questa struttura esatta:
-    {{"estimated_resell_price": 0}}
+    {{"estimated_resell_price": 25, "reasoning": "Breve motivo della stima"}}
     """
 
     payload = {
         "model": model_name,
         "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.1,
+        "temperature": 0.2,
         "response_format": {"type": "json_object"}
     }
 
