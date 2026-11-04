@@ -195,7 +195,7 @@ def scrape_and_check():
         print(f"\n--- Scansione: {target['name']} ({index}/{len(TARGET_QUERIES)}) ---", flush=True)
         try:
             query_str = target['query'].replace(' ', '%20')
-            catalog_url = f"https://www.vinted.it/catalog?search_text={query_str}&price_to={target['price_to']}&order=newest_first"
+            catalog_url = f"https://www.vinted.it/catalog?search_text={query_str}&price_to={target['price_to']}&order=newest_first&status_ids[]=1&status_ids[]=2&status_ids[]=6"
             
             res = session.get(catalog_url, timeout=15)
             if res.status_code != 200:
