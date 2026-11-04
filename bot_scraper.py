@@ -175,7 +175,7 @@ def evaluate_deal_with_groq(title, price, model_name):
             estimated_resell = float(data.get("estimated_resell_price", 0))
             
             net_profit = estimated_resell - price - 3.5
-            is_deal = net_profit >= 8.0
+            is_deal = net_profit >= 20.0
             
             return {
                 "is_deal": is_deal,
