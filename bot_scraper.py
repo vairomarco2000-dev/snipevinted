@@ -13,13 +13,20 @@ GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 SENT_ITEMS_FILE = "sent_items.json"
 
 TARGET_QUERIES = [
-    {"name": "Gorpcore & Techwear", "query": "arcteryx gore tex jacket", "price_to": 110},
-    {"name": "Streetwear Vintage / Terrace", "query": "stone island cp company vintage", "price_to": 90},
-    {"name": "Lotti Streetwear & Denim", "query": "lotto carhartt stussy dickies", "price_to": 55},
-    {"name": "Retrogaming di Nicchia", "query": "gameboy color advance nintendo ps1", "price_to": 45},
-    {"name": "Lotti Fumetti & Collezionismo", "query": "lotto diabolik tex fumetti vintage", "price_to": 35},
-    {"name": "Maglie Calcio Anni 90/2000", "query": "maglia calcio vintage 90s", "price_to": 40},
-    {"name": "Streetwear Raro / T-Shirt", "query": "stussy supreme vintage t shirt", "price_to": 45}
+    {"name": "Gorpcore & Techwear", "query": "arcteryx gore tex jacket", "price_to": 40},
+    {"name": "Streetwear Vintage / Terrace", "query": "stone island cp company vintage", "price_to": 10},
+    {"name": "Lotti Streetwear & Denim", "query": "lotto carhartt stussy dickies", "price_to": 10},
+   # {"name": "Retrogaming di Nicchia", "query": "gameboy color advance nintendo ps1", "price_to": 45},
+    {"name": "Lotti Fumetti & Collezionismo", "query": "lotto diabolik tex fumetti vintage", "price_to": 10},
+   # {"name": "Maglie Calcio Anni 90/2000", "query": "maglia calcio vintage 90s", "price_to": 40},
+    {"name": "Streetwear Raro / T-Shirt", "query": "stussy supreme vintage t shirt", "price_to": 10}
+    {"query": "felpa nike vintage", "max_price": 7},
+    {"query": "felpa adidas vintage", "max_price": 7},
+    {"query": "felpa champion vintage", "max_price": 7},
+    {"query": "felpa reebok vintage", "max_price": 7},
+    {"query": "crewneck nike", "max_price": 7},
+    {"query": "crewneck adidas", "max_price": 7},
+    {"query": "felpa puma vintage", "max_price": 6},
 ]
 
 session = requests.Session()
