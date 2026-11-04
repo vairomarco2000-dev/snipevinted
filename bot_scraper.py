@@ -16,17 +16,17 @@ TARGET_QUERIES = [
     {"name": "Gorpcore & Techwear", "query": "arcteryx gore tex jacket", "price_to": 40},
     {"name": "Streetwear Vintage / Terrace", "query": "stone island cp company vintage", "price_to": 10},
     {"name": "Lotti Streetwear & Denim", "query": "lotto carhartt stussy dickies", "price_to": 10},
-   # {"name": "Retrogaming di Nicchia", "query": "gameboy color advance nintendo ps1", "price_to": 45},
+    # {"name": "Retrogaming di Nicchia", "query": "gameboy color advance nintendo ps1", "price_to": 45},
     {"name": "Lotti Fumetti & Collezionismo", "query": "lotto diabolik tex fumetti vintage", "price_to": 10},
-   # {"name": "Maglie Calcio Anni 90/2000", "query": "maglia calcio vintage 90s", "price_to": 40},
-    {"name": "Streetwear Raro / T-Shirt", "query": "stussy supreme vintage t shirt", "price_to": 10}
-    {"query": "felpa nike vintage", "max_price": 7},
-    {"query": "felpa adidas vintage", "max_price": 7},
-    {"query": "felpa champion vintage", "max_price": 7},
-    {"query": "felpa reebok vintage", "max_price": 7},
-    {"query": "crewneck nike", "max_price": 7},
-    {"query": "crewneck adidas", "max_price": 7},
-    {"query": "felpa puma vintage", "max_price": 6},
+    # {"name": "Maglie Calcio Anni 90/2000", "query": "maglia calcio vintage 90s", "price_to": 40},
+    {"name": "Streetwear Raro / T-Shirt", "query": "stussy supreme vintage t shirt", "price_to": 10},
+    {"name": "Felpa Nike Vintage", "query": "felpa nike vintage", "price_to": 7},
+    {"name": "Felpa Adidas Vintage", "query": "felpa adidas vintage", "price_to": 7},
+    {"name": "Felpa Champion Vintage", "query": "felpa champion vintage", "price_to": 7},
+    {"name": "Felpa Reebok Vintage", "query": "felpa reebok vintage", "price_to": 7},
+    {"name": "Crewneck Nike", "query": "crewneck nike", "price_to": 7},
+    {"name": "Crewneck Adidas", "query": "crewneck adidas", "price_to": 7},
+    {"name": "Felpa Puma Vintage", "query": "felpa puma vintage", "price_to": 6}
 ]
 
 session = requests.Session()
